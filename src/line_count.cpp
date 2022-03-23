@@ -57,9 +57,7 @@ std::vector<int> count_lines_in_files3(const std::vector<std::string> &files)
 // 报错
 //std::vector<int> count_lines_in_files4(const std::vector<std::string> &files)
 //{
-//    std::vector<int> result;
-//    result = files | std::views::transform(count_lines);
-//    return result;
+//    return files | std::views::transform(result, count_lines);
 //}
 
 int main()
