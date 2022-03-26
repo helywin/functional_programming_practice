@@ -61,5 +61,75 @@ auto result = sum(xs | transform(sqrt));
 
 #### 1.4.3 持续优化
 
+## 2 开始函数式编程
 
+### 2.1 函数把函数当参数
+
+对于过滤人群的函数调用，可以总结为
+
+```c++
+filter: (collection<T>, (T → bool)) → collection<T>
+```
+
+而结构体的映射转换使用的`transform`原型为
+
+```c++
+transform: (collection<In>, (In → Out)) → collection<Out>
+```
+
+### 2.2 STL例子
+
+#### 2.2.1 计算均值
+
+通常做法
+
+```c++
+double average_score(const std::vector<int> &scores)
+{
+    int sum = 0;
+    for (int score: scores) {
+        sum += score;
+    }
+    return sum / (double) scores.size();
+}
+```
+
+我们可以使用`std::accumulate`来实现：
+
+```c++
+double average_score(const std::vector<int> &scores)
+{
+    return std::accumulate(scores.cbegin(), scores.cend(), 0) /
+           (double) scores.size();
+}
+```
+
+并行版本的算法，需要使用`execution`里面的函数`std::redux`
+
+```c++
+double average_score(const std::vector<int>& scores)
+{
+    return std::reduce(
+            std::execution::par,
+            scores.cbegin(), scores.cend(),
+            0
+    ) / (double) scores.size();
+}
+```
+
+编译并行程序如果出现问题，例如
+
+```
+error: #error Intel(R) Threading Building Blocks 2018 is required; older versions are not supported.
+```
+
+需要编译最新版本的TBB库，教程在：https://github.com/oneapi-src/oneTBB/blob/master/INSTALL.md
+
+`std::accumulate`也可以自定义操作符，或者使用已经有的例如`std::multiplies`
+
+
+
+`std::accumulate`是特殊的函数，会顺序执行，不能够进行并行化
+
+![accumulate](./assets/accumulate.png)
 
