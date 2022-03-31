@@ -104,7 +104,7 @@ double average_score(const std::vector<int> &scores)
 }
 ```
 
-并行版本的算法，需要使用`execution`里面的函数`std::redux`
+并行版本的算法，需要使用`execution`里面的函数`std::reduce`
 
 ```c++
 double average_score(const std::vector<int>& scores)
@@ -279,4 +279,57 @@ transform(filter(people, is_female), name);
 ```
 
 利用`filter`过滤出符合的元素然后进行一对一的集合元素转换
+
+使用该方法解决了两个算法之间存在中介变量的问题，比如需要生命临时的用来存女性的集合的数组
+
+使用两次`std::copy_if`也能达到`std::stable_partition`的功能
+
+```c++
+std::vector<person_t> separated(people.size());
+
+const auto last = std::copy_if(
+    people.cbegin(), people.cend(),
+    separated.begin(),
+    is_female);
+
+std::copy_if(
+    people.cbegin(), people.cend(),
+    last,
+    is_not_female);
+```
+
+### 2.4 编写自己的高等级函数
+
+很多STL算法在第三方库里面也有实现，比如Boost
+
+#### 2.4.1 以变量的方式接收函数
+
+例如
+
+```c++
+template <typename FilterFunction>
+std::vector<std::string> names_for(
+    const std::vector<person_t> &people,
+    FilterFunction filter);
+```
+
+#### 使用循环实现
+
+```c++
+template <typename FilterFunction>
+std::vector<std::string> names_for(
+    const std::vector<person_t> &people,
+    FilterFunction filter)
+{
+    std::vector<std::string> result;
+
+    for (const person_t &person : people) {
+        if (filter(person)) {
+            result.push_back(name(person));
+        }
+    }
+
+    return result;
+}
+```
 
