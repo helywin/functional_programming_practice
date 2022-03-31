@@ -123,13 +123,160 @@ double average_score(const std::vector<int>& scores)
 error: #error Intel(R) Threading Building Blocks 2018 is required; older versions are not supported.
 ```
 
-需要编译最新版本的TBB库，教程在：https://github.com/oneapi-src/oneTBB/blob/master/INSTALL.md
+需要编译最新版本的TBB库，教程在：<https://github.com/oneapi-src/oneTBB/blob/master/INSTALL.md>
+
+#### 2.2.2 折叠
 
 `std::accumulate`也可以自定义操作符，或者使用已经有的例如`std::multiplies`
-
-
 
 `std::accumulate`是特殊的函数，会顺序执行，不能够进行并行化
 
 ![accumulate](./assets/accumulate.png)
+
+使用`std::accumulate`计算行数
+
+```c++
+int f(int previous_count, char c)
+{
+    return (c != '\n') ? previous_count
+                       : previous_count + 1;
+}
+
+int count_lines(const std::string & s)
+{
+    return std::accumulate(
+        s.cbegin(), s.cend(),
+        0,
+        f
+    );
+}
+```
+
+该方法用`f`函数判断是否是回车符，自定义了`std::accumulate`的运算函数。如果需要从尾部运算到头部，把迭代器`cbegin`换成`crbegin`就可以了
+
+#### 2.2.3 字符串修剪
+
+需要用到的算法是`std::find_if`
+
+```c++
+bool is_not_space(char c)
+{
+    return c != ' ';
+}
+
+std::string trim_left(std::string s)
+{
+    s.erase(s.begin(),
+            std::find_if(s.begin(), s.end(), is_not_space));
+    return s;
+}
+
+std::string trim_right(std::string s)
+{
+    s.erase(std::find_if(s.rbegin(), s.rend(), is_not_space).base(),
+            s.end());
+    return s;
+}
+
+std::string trim(std::string s)
+{
+    return trim_left(trim_right(std::move(s)));
+}
+```
+
+使用`base()`函数把反向迭代器转换成正向迭代器
+
+#### 2.2.4 集合划分
+
+使用`std::partition`和`std::stable_partition`可以把集合按照特定要求一分为二排列
+
+比如把女性放队列前面
+
+```c++
+std::partition(
+    people.begin(), people.end(),
+    is_female
+);
+```
+
+而两者的区别就是`std::partition`排列的时候不会考虑相同类之间元素的顺序，效率相对后者较高。而`std::stable_partition`会保持同类元素之间的相对顺序
+
+#### 2.2.5 过滤和变换
+
+使用`std::remove_if`过滤
+
+```c++
+people.erase(
+    std::remove_if(people.begin(), people.end(),
+                   is_not_female),
+    people.end());
+```
+
+`std::remove`或者`std::remove_if`并不能真正的删除元素，而是把要删除的元素移动到末尾，配合`std::erase`来彻底删除元素
+
+使用`std::copy_if`拷贝特定元素
+
+```c++
+std::vector<person_t> females;
+
+std::copy_if(people.cbegin(), people.cend(),
+             std::back_inserter(females),
+             is_female);
+```
+
+`std::back_inserter`可以在原有集合的基础上提供向后插入的容器，由于`std::copy_if`事先并不知道需要拷贝多少元素，所以需要动态扩充的容器来进行拷贝
+
+`std::copy_if`四个参数的原型
+
+```c++
+template<class InputIt, class OutputIt, class UnaryPredicate>
+OutputIt copy_if(InputIt first, InputIt last, 
+                 OutputIt d_first, UnaryPredicate pred)
+{
+    while (first != last) {
+        if (pred(*first))
+            *d_first++ = *first;
+        first++;
+    }
+    return d_first;
+}
+```
+
+可以看到`std::copy_if`并不会扩充目标容器
+
+用`std::copy_if`除了拷贝到`std::back_inserter`容器里面还可以拷贝到流里面，比如
+
+```c++
+std::ostream_iterator<int>(std::cout, " ")
+```
+
+### 2.3 STL算法的兼容性问题
+
+通常STL算法的兼容性都比手写循环兼容性好，比如以下找出所有女性并把名字存储记录的代码
+
+```c++
+std::vector<std::string> names;
+
+for (const auto &person : people) {
+    if (is_female(person)) {
+        names.push_back(name(person));
+    }
+}
+```
+
+使用`transform`加上`filter`函数可以简洁，原型如下
+
+```c++
+filter      : (collection<T>, (T -> bool)) -> collection<T>
+transform   : (collection<T>, (T -> T2)) -> collection<T2>
+```
+
+`filter`是C++20里面的，在`<ranges>`头文件里面
+
+```c++
+std::vector<std::string> names;
+transform(filter(people, is_female), name);
+```
+
+利用`filter`过滤出符合的元素然后进行一对一的集合元素转换
 
