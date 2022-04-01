@@ -313,7 +313,7 @@ std::vector<std::string> names_for(
     FilterFunction filter);
 ```
 
-#### 使用循环实现
+#### 2.4.2 使用循环实现
 
 ```c++
 template <typename FilterFunction>
@@ -331,5 +331,152 @@ std::vector<std::string> names_for(
 
     return result;
 }
+```
+
+#### 2.4.3 递归和尾随调用优化
+
+上面用循环的方式，每次找到一个人，都会相应的更改结果
+
+使用递归方式如下：
+
+```c++
+template <typename FilterFunction>
+std::vector<std::string> names_for(
+    const std::vector<person_t>& people,
+    FilterFunction filter)
+{
+    if (people.empty()) {
+        return {};
+    } else {
+        const auto head = people.front();
+        const auto processed_tail = names_for(
+                tail(people),
+                filter);
+        if (filter(head)) {
+            return prepend(name(head), processed_tail);
+        } else {
+            return processed_tail;
+        }
+    }
+}
+```
+
+该实现方式并不高效，`vector`并没有现成的`tail`函数，需要自己实现
+
+另外一种实现方式如下：
+
+```c++
+template <typename FIlterFunction, typename Iterator>
+std::vector<std::string> names_for(
+    Iterator people_begin,
+    Iterator people_end,
+    FilterFunction filter)
+{
+    ...
+    const auto processed_tail = names_for(
+        people_begin + 1,
+        people_end,
+        filter);
+    ...
+}
+```
+
+第二种实现方法也会有每次都会在`vector`后面添加的情况，但是每次迭代占用的栈内存开销都很大，有些甚至会溢出崩溃
+
+尾部递归的实现：
+
+```c++
+template <typename FilterFunction, typename Iterator>
+std::vector<std::string> names_for_helper(
+    Iterator people_begin,
+    Iterator people_end,
+    FilterFunction filter,
+    std::vector<std::string> previously_collected)
+{
+    if (people_begin == people_end) {
+        return previously_collected;
+    }
+    const auto head = *people_begin;
+    
+    if (filter(head)) {
+        previously_collected.push_back(name(head));
+    }
+
+    return names_for_helper(
+        people_begin + 1,
+        people_end,
+        filter,
+        std::move(previously_collected));
+}
+
+// 调用函数
+template <typename FilterFunction, typename Iterator>
+std::vector<std::string> names_for_helper(
+    Iterator people_begin,
+    Iterator people_end,
+    FilterFunction filter)
+{
+    names_for_helper(people_begin, people_end, filter, {});
+}
+```
+
+#### 2.4.4 使用折叠实现
+
+递归是一种低层次的结构，通常在春FP函数中会加以避免，前面说高层次的结构在FP里面更受欢迎，因为因为递归错综复杂
+
+使用`std::accumulate`实现
+
+```c++
+std::vector<std::string> append_name_if(
+    std::vector<std::string> previously_collected,
+    const person_t &person)
+{
+    if (filter(person)) {
+        previously_collected.push_back(name(person));
+    }
+    return previously_collected;
+}
+
+...
+
+return std::accumulate(
+    people.cbegin(),
+    people.cend(),
+    std::vector<std::string>{},
+    append_name_if);
+```
+
+但是该例子里面有个重要的问题是拷贝次数太多了，每次调用`append_name_if`都会生成`previously_collected`的拷贝，C++20里面优化了`std::accumulate`的拷贝问题，也可以自己实现`move_accumulate`方法，以下是C++20优化后的实现
+
+```c++
+template<class InputIt, class T, class BinaryOperation>
+constexpr // since C++20
+T accumulate(InputIt first, InputIt last, T init, 
+             BinaryOperation op)
+{
+    for (; first != last; ++first) {
+        init = op(std::move(init), *first); // std::move since C++20
+    }
+    return init;
+}
+```
+
+## 3 函数对象
+
+### 3.1 函数和函数对象
+
+两种不同的写法
+
+```c++
+int max(int arg1, int arg2) { ... }
+auto max(int arg1, int arg2) -> int { ... }
+```
+
+#### 3.1.1 自动类型推导
+
+```c++
+int answer = 42;
+auto ask1() { return answer; }
+const auto &ask2() { return answer; }
 ```
 
