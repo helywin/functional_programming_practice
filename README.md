@@ -480,3 +480,17 @@ auto ask1() { return answer; }
 const auto &ask2() { return answer; }
 ```
 
+使用`decltype(auto)`返回值
+
+```c++
+template <typename Object, typename Function>
+decltype(auto) call_on_object(Object &&object, Function function)
+{
+    return function(std::forward<Object>(object));
+}
+```
+
+**变量完美转发**
+
+使用折叠引用和`std::forward`
+
