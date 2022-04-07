@@ -1,3 +1,12 @@
+---
+title: C++函数式编程
+date: 2022-3-30 14:49:23
+updated: 2022-4-2 17:53:23
+tags:
+  - C++
+excerpt: 《Functional Programming in C++》书中代码练习测试以及一些笔记
+---
+
 # 说明
 
 《Functional Programming in C++》书中代码练习测试以及一些笔记
@@ -493,4 +502,84 @@ decltype(auto) call_on_object(Object &&object, Function function)
 **变量完美转发**
 
 使用折叠引用和`std::forward`
+
+#### 3.1.2 函数指针
+
+```c++
+int ask() { return 42; }
+
+typedef decltype(ask) * function_ptr;
+
+class convertible_to_function_ptr {
+public:
+    operator function_ptr() const   //函数指针callable_object
+    {
+        return ask;
+    }
+};
+
+int main()
+{
+    auto ask_ptr = &ask;
+    std::cout << ask_ptr() << '\n'; //调用函数指针
+
+    auto ask_ref = ask;
+    std::cout << ask_ref() << '\n'; //调用函数引用
+
+    convertible_to_function_ptr ask_wrapper;
+    std::cout << ask_wrapper() << '\n'; // 对象转换成函数指针
+}
+
+```
+
+#### 3.1.3 重载调用操作符
+
+语法：
+
+```c++
+class function_object {
+public:
+    return_type operator()(arguments) const
+    {
+        ...
+    }
+};
+```
+
+要取出年龄大于42岁的人，通常可以这么做
+
+```c++
+bool older_than_42(const person_t& person)
+{
+    return person.age > 42;
+}
+std::count_if(persons.cbegin(), persons.cend(),
+              older_than_42);
+```
+
+但是这种方式并不通用，更加通用的办法是创建一个callable类，把42当构造参数传入
+
+```c++
+class older_than
+{
+public:
+    older_than(int limit) : m_limit(limit) {}
+    bool operator() (const person_t &person) const
+    {
+        return person.age() > m_limit;
+    }
+
+private:
+    int m_limit;
+}
+
+older_than older_than_42(42);
+
+std::count_if(persons.cbegin(), persons.cend(),
+              older_than(42));
+```
+
+`std::count_if`并不需要传入参数为函数指针，只需要是能够被调用的就行
+
+#### 3.1.4 创建通用函数对象
 
