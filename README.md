@@ -583,3 +583,109 @@ std::count_if(persons.cbegin(), persons.cend(),
 
 #### 3.1.4 创建通用函数对象
 
+用于通用对象的比较函数对象
+
+```c++
+template<typename T>
+class older_than {
+public:
+    older_than(int limit) :
+            m_limit(limit) {}
+    bool operator()(const T &object) const
+    {
+        return object.age() > m_limit;
+    }
+private:
+    int m_limit;
+};
+
+std::count_if(persons.cbegin(), persons.cend(),
+              older_than<person_t>(42));
+std::count_if(cars.cbegin(), cars.cend(),
+              older_than<car_t>(5));
+std::count_if(projects.cbegin(), projects.cend(),
+              older_than<project_t>(42));
+```
+
+上面函数对象以来类型来创建，通过只设置单个函数为模板函数创建能够自动推导类型的函数对象模板，使其更加通用
+
+```c++
+class older_than {
+public:
+    older_than(int limit) : m_limit(limit) {}
+    template<typename T>
+    bool operator()(T &&object) const
+    {
+        return std::forward<T(object).age() > m_limit;
+    }
+};
+
+older_than predicate(5);
+std::count_if(persons.cbegin(), persons.cend(), predicate);
+std::count_if(cars.cbegin(), cars.cend(), predicate);
+std::count_if(projects.cbegin(), projects.cend(), predicate);
+```
+
+### 3.2 Lambda表达式和闭包
+
+使用$\lambda$表达式
+
+```c++
+std::copy_if(people.cbegin(), people.cend(),
+             std::back_inserter(females),
+             [](const person_t& person) {
+                 return person.gender() == person_t::female;
+             }
+        );
+```
+
+#### 3.2.1 Lambda表达式语法
+
+```c++
+[a, &b] (int x, int y) { return a * x + b * y; }
+   头         变量                函数体
+```
+
+不同函数头的作用
+
+- `[a, &b]` —— a值抓取，b引用抓取
+- `[]` —— 不使用附近作用域
+- `[&]` —— 引用抓取所有函数体用过的变量
+- `[=]` —— 值抓取所有函数体用过的变量
+- `this` —— 抓取`this`指针
+- `[&, a]` —— 除了`a`按值抓取，其他都按引用抓取
+- `[=, &b]` —— 除了`b`按引用抓取，其他都按值抓取
+
+#### 3.2.2 使用lambda表达式
+
+```c++
+class company_t {
+public:
+    std::string team_name_for(const person_t &employee) const;
+    int count_team_members(const std::string &team_name) const;
+
+private:
+    std::vector<person_t> m_employees;
+    ...
+};
+
+int company_t::count_team_members(const std::string &team_name) const
+{
+    return std::count_if(
+            m_employees.cbegin(), m_employees.cend(),
+            [this, &team_name](const person_t &employee) {
+                return team_name_for(employee) == team_name;
+            }
+        );
+}
+
+```
+
+使用`mutable`关键字标记的lambda表达式可以告诉编译器这个lambda上的调用操作符不应该是常数
+
+```c++
+int count = 0;
+std::vector<std::string> words{"An", "ancient", "pond"};
+
+```
+
