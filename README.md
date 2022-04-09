@@ -689,3 +689,121 @@ std::vector<std::string> words{"An", "ancient", "pond"};
 
 ```
 
+> 当声明一个lambda表达式，编译器就会声明一个callable类，`()`操作符为函数
+
+#### 3.2.3 在lambdas中创建任意的成员变量
+
+使用值抓取move only类型`std::unique_ptr`时会有问题
+
+```c++
+std::unique_ptr<sesson_t> session = create_sesson();
+auto request = server.request("GET /", session->id());
+request.on_complete(
+            [session]
+            (response_t response)
+            {
+                std::cout << "Got response: " << response
+                          << " for session: " << session;
+            }
+        );
+```
+
+上述方式会报错，需要在抓取的时候使用移动语义`std::move`
+
+```c++
+request.on_complete(
+            [ session = std::move(session),
+              time = current_time()
+            ]
+            (response_t response)
+            {
+                std::cout << "Got response: " << response
+                          << " for session: " << session
+                          << " the request took: "
+                          << (current_time() - time)
+                          << "milliseconds";
+            }
+        );
+```
+
+`time`在创建该匿名函数时就已经定义好了，无论后续在哪里调用
+
+#### 3.2.4 通用lambda表达式
+
+lambda表达式参数支持auto关键字，能够根据调用入参自己选择类型
+
+```c++
+auto predicate = [limit = 42] (auto &&object) {
+    return object.age() > limit;
+}
+
+std::count_if(persons.cbegin(), persons.cend(),
+              predicate);
+std::count_if(cars.cbegin(), cars.cend(),
+              predicate);
+std::count_if(projects.cbegin(), projects.cend(),
+              predicate);
+```
+
+C++20中更加通用的lambda表达式
+
+支持使用decltype
+
+```c++
+[] (auto first, decltype(first) second) { … }
+```
+
+或者使用模板
+
+```c++
+[] <typename T> (T first, T second) { … }
+```
+
+### 3.3 编写比lambda表达式更复杂的函数对象
+
+写过滤函数需要重复很多代码
+
+```c++
+ok_response = filter(response, 
+        [] (const response_t &response) {
+            return !response.error();
+        });
+
+failed_response = filter(response,
+        [] (const response_t &response) {
+            return response.error();
+        });
+```
+
+理想的调用方式是这样的
+
+```c++
+ok_response = filter(response, not_error);
+// 或者        filter(response, !error);
+// 或者        filter(response, error == false);
+
+failed_response = filter(response, error);
+// 或者            filter(response, not_error == false);
+// 或者            filter(response, error == true);
+```
+
+需要定义一个类，存储一个`bool`类型
+
+```c++
+class error_test_t {
+public:
+    error_test_t(bool error = true) : m_error(error) {}
+    template <typename T>
+    bool operator()(T &&value) const
+    {
+        return m_error == (bool) std::forward<T>(value).error();
+    }
+
+private:
+    bool m_error;
+};
+
+error_test_t error(true);
+error_test_t not_error(false);
+```
+
