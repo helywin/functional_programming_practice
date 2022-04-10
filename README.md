@@ -807,3 +807,112 @@ error_test_t error(true);
 error_test_t not_error(false);
 ```
 
+如果需要支持`!`操作，还要重载该操作符
+
+```c++
+class error_test_t {
+public:
+    ...
+    error_test_t operator==(bool test) const
+    {
+        return error_test_t(
+            test ? m_error : !m_error
+        );
+    }
+
+    error_test_t operator!() const
+    {
+        return error_test_t(!m_error);
+    }
+};
+```
+
+#### 3.3.1 STL中的操作符函数对象
+
+STL中的操作符函数对象可以用在排序和累计中
+
+```c++
+std::vector<int> numbers{1, 2, 3, 4};
+product = std::accumulate(numbers.cbegin(), numbers.cend(), 1,
+                          std::multiplies<int>());
+std::vector<int> numbers{5, 21, 13, 42};
+std::sort(numbers.begin(), numbers.end(), std::greater<int>());
+// numbers now contain {42, 21, 13, 5}
+```
+
+```c++
+// 算术操作
+std::plus
+std::minus
+std::multiplies
+std::divides
+std::modulus    // %
+std::negates    // -a
+
+// 比较操作
+std::equal_to
+std::not_equal_to
+std::greater
+std::less
+std::greater_equal
+std::less_equal
+
+// 逻辑操作
+std::logical_and
+std::logical_or
+std::logical_not
+
+// 位操作
+std::bit_and
+std::bit_or
+std::bit_xor
+```
+
+C++14中，在使用标准库中的运算符包装器时，你可以省略该类型。直接使用`std::greater<>()`，而不是`std::greater<int>()`
+
+#### 3.3.2 其他库中的操作符函数对象
+
+Boost库。比如Boost库中的`phoenix`
+
+```c++
+using namespace boost::phoenix::arg_names;
+std::vector<int> numbers{21, 5, 62, 42, 53};
+std::partition(numbers.begin(), numbers.end(),
+               arg1 <= 42);
+// numbers now contain {21, 5, 42, 62, 53}
+//                         <= 42    > 42
+```
+
+`arg1`为定义的占位符，该函数代表按照第一个变量把集合划分开
+
+然后还可以运用在其他上，比如累加
+
+```c++
+std::accumulate(numbers.cbegin(), numbers.cend(), 0, 
+                arg1 + arg2 * arg2 / 2);
+```
+
+![说明](./assets/20220410131731.png)
+
+也可以算乘法或者进行排序
+
+```c++
+product = std::accumulate(numbers.cbegin(), numbers.cend(), 1,
+                          arg1 * arg2);
+std::sort(numbers.begin(), numbers.end(), arg1 > arg2);
+```
+
+### 3.4 使用std::function包装函数
+
+```c++
+std::function<float (float, float)> test_function;
+test_function = std::fmaxf;                     // 函数
+test_function = std::multiplies<float>();       // 类的调用函数
+test_function = std::multiplies<>();            // 类通用调用函数
+test_function = [x] (float a, float b) { return a * x + b; };   // lambda表达式
+test_function = [x] (auto a, auto b) { return a * x + b; };     // 通用lanbda表达式
+test_function = (arg1 + arg2) / 2;              // boost.phoenix 表达式
+test_function = [](std::string s) { return s.empty(); } // 错误
+```
+
+`std::function`本质上是重载了`()`操作符的可调用类（callable）
