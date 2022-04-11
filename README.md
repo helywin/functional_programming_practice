@@ -916,3 +916,113 @@ test_function = [](std::string s) { return s.empty(); } // 错误
 ```
 
 `std::function`本质上是重载了`()`操作符的可调用类（callable）
+
+`std::function`在绑定函数时需要用到`std::ref`确保是引用传参
+
+```c++
+std::function<void()> bound_f = std::bind(f, n1, std::ref(n2), std::cref(n3));
+```
+
+## 4 从旧的函数创建新的函数
+
+### 4.1 部分功能的应用
+
+之前的比较是用模板的形式，涉及到具体对象的方法，并不通用，下面采用的是重载调用操作符
+
+```c++
+class greater_than {
+public:
+    greater_than(int value) : m_value {}
+    bool operator()(int arg) const
+    {
+        return arg > m_value;
+    }
+private:
+    int m_value;
+};
+...
+
+greater_than greater_than_42(42);
+greater_than_42(1);     // false
+greater_than_42(50);    // true
+
+std::partition(xs.begin(), xs.end(), greater_than(6));
+```
+
+#### 4.1.1 将二元操作函数转换为单一函数的通用方法
+
+更通用的方式封装别的用户的二元操作函数，比如说`>`是两个操作变量，greater_than把一个变量构造函数传入进去，变成一个一元函数
+
+```c++
+template<typename Function, typename SecondArgType>
+class partial_application_on_2nd_impl {
+public:
+    partial_application_on_2nd_impl(Function function,
+                                    SecondArgType second_arg)
+        : m_function(function)
+        , m_value(second_arg)
+    {}
+
+    template<typename FirstArgType>
+    auto operator()(FirstArgType &&first_arg) const
+        -> decltype(m_function(
+                std::forward<FirstArgType>(first_arg),
+                m_second_arg))
+    {
+        return m_function(
+                std::forward<FirstArgType>(first_arg),
+                m_second_arg);
+    }
+
+    ...
+private:
+    Function m_function;
+    SecondArgType m_second_arg;
+};
+
+// 绑定函数
+template<typename Function, typename SecondArgType>
+partial_application_bind2nd_impl<Function, SecondArgType>
+bind2nd(Function &&function, SecondArgType &&second_arg)
+{
+    return partial_application_bind2nd_impl<Function, SecondArgType>(
+            std::forward<Function>(function),
+            std::forward<SecondArgType>(second_arg));
+}
+
+auto greater_than_42 = bind2nd(std::greater<int>(), 42);
+
+greater_than_42(1);     // false
+greater_than_42(50);    // true
+```
+
+使用`bind2nd`把角度转换成弧度
+
+```c++
+// 把角度转换成弧度
+std::vector<double> degrees = {0, 30, 45, 60};
+std::vector<double> radians(degrees.size());
+
+std::transform(degrees.cbegin(), degrees.cend(),
+               radians.begin(),
+               bind2nd(std::multiplies<double>, PI / 180));
+```
+
+#### 4.1.2 使用std::bind指定函数变量
+
+`std::bind1st`和`std::bind2nd`都被弃用了,可以使用`std::bind`
+
+```c++
+auto bound = std::bind(std::greater<double>(), _1, 42);
+bool is_6_greater_than_42 = bound(6);
+```
+
+#### 4.1.3 保持二元操作函数的变量
+
+可以把`_1`和`_2`位置调换，使得变量传入也交换
+
+```c++
+std::sort(scores.begin(), scores.end(),
+          std::bind(std::greater<double>, _2, _1));
+```
+
