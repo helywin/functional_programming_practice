@@ -1017,7 +1017,18 @@ auto bound = std::bind(std::greater<double>(), _1, 42);
 bool is_6_greater_than_42 = bound(6);
 ```
 
-#### 4.1.3 保持二元操作函数的变量
+占位符`_1`和`_2`在`<functional>`头文件的命名空间`std::placeholders`里面
+
+通过绑定不同的占位符变为不同的操作
+
+```c++
+auto is_greater_than_42 =
+    std::bind(std::greater<double>(), _1, 42);
+auto is_less_than_42 =
+    std::bind(std::greater<double>(), 42, _1);
+```
+
+#### 4.1.3 反转二元操作函数的变量
 
 可以把`_1`和`_2`位置调换，使得变量传入也交换
 
@@ -1026,3 +1037,159 @@ std::sort(scores.begin(), scores.end(),
           std::bind(std::greater<double>, _2, _1));
 ```
 
+#### 4.1.4 使用std::bind处理更多变量的函数
+
+```c++
+enum output_format_t
+{
+    name_only,
+    full_name,
+};
+
+void print_person(const person_t &person,
+                  std::ostream &out,
+                  person_t::output_format_t format);
+
+std::for_each(people.cbegin(), people.cend(),
+        std::bind(print_person,
+                  _1,
+                  std::ref(std::cout),
+                  person_t::name_only
+            ));
+```
+
+也可以绑定类成员函数，比如`print`在`person_t`中
+
+```c++
+class person_t {
+public:
+    ...
+    void print(std::ostream &out, person_t::output_format_t format);
+}
+
+std::for_each(people.cbegin(), people.cend(),
+        std::bind(&person_t::print,
+                 _1,
+                 std::ref(std::cout), 
+                 person_t::name_only
+            ));
+```
+
+#### 4.1.5 使用lambda表达式替代std::bind
+
+```c++
+auto is_greater_than_42 = 
+    [] (double value) {
+        return std::greater<double>()(value, 42);
+    };
+
+auto is_less_than_42 = 
+    [] (double value) {
+        return std::greater<double>()(42, value);
+    };
+```
+
+排序的实现
+
+```c++
+std::sort(scores.begin(), scores.end(),
+          [] (double value1, double value2) {
+              return std::greater<double>()(value2, value1);
+          });
+```
+
+打印的实现
+
+```c++
+std::for_each(people.cbegin(), people.cend(),
+              [] (const person_t &person) {
+                  print_person(person,
+                               std::cout,
+                               person_t::name_only);
+              });
+std::for_each(people.cbegin(), people.cend(),
+              [&file] (const person_t &person) {
+                  print_person(person,
+                               file,
+                               person_t::name_only);
+              });
+```
+
+### 4.2 柯理化:不同的方式看函数
+
+柯理化（currying）：从Haskell引进的词汇，把一个多参数函数转换成单参数函数, 并且返回一个能接受余下参数并返回结果的新函数。
+
+例如，一个函数f0需要输出2个参数，柯理化后，第一个函数f1接收第一个参数a1后返回一个函数f2，f2接受第二个参数a2后返回最终结果
+
+```c++
+// 正常版本的调用
+int result = f0(10, 2);
+ 
+// Currying版本的调用
+auto f1 = f0(10);
+int f2 = f1(2);
+```
+
+大于函数的柯理化版本
+
+```c++
+// greater : (double, double) -> bool
+bool greater(double first, double second)
+{
+    return first > second;
+}
+
+// greater_curried : double → (double → bool)
+auto greater_curried(double first)
+{
+    return [first] (double second) {
+        return first > second;
+    }
+}
+
+greater(2, 3);          // false
+greater_curried(2);     // 返回函数对象
+greater_curried(2)(3);  // false
+```
+
+#### 4.2.1 更方便的创建柯理化函数的方式
+
+```c++
+auto print_person_cd(const person_t &person)
+{
+    return [&] (std::ostream &out) {
+        return [&] (person_t::output_format_t format) {
+            print_person(person, out, format);
+        }
+    }
+}
+```
+
+使用`make_curried`，后面第11章节会提供代码
+
+```c++
+using std::cout;
+
+auto print_person_cd = make_curried(print_person);
+
+// 所有的方式都可以调用
+print_person_cd(martha, cout, person_t::full_name);
+print_person_cd(martha)(cout, person_t::full_name);
+print_person_cd(martha, cout)(person_t::full_name);
+print_person_cd(martha)(cout)(person_t::full_name);
+
+auto print_martha = print_person_cd(martha);
+print_martha(cout, person_t::name_only);
+
+auto print_martha_to_cout = print_person_cd(martha, cout);
+print_martha_to_cout(person_t::name_only);
+```
+
+#### 4.2.2 使用柯理化处理数据库权限
+
+```c++
+result_t query(connection_t &connection,
+               session_t &session,
+               const std::string &table_name,
+               const std::string &filter);
+```
