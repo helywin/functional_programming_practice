@@ -1453,6 +1453,31 @@ int plusG(int x)
 }
 ```
 
+如果一个表达式是引用透明的，那么它就没有可观察的副作用（observable side effects），因此该表达式中使用的所有函数都是纯的。
+
+搜索和打印最大值
+
+```c++
+double max(const std::vector<double> &numbers)
+{
+    assert(!numbers.empty());
+    auto result = std::max_element(numbers.cbegin(),
+                                   numbers.cend());
+    std::cerr << "Maximum is: " << *result << std::endl;
+    return *result;
+}
+
+int main()
+{
+    auto sum_max = 
+        max({1}) + 
+        max({1, 2}) +
+        max({1, 2, 3});
+    
+    std::cout << sum_max << std::endl;
+}
+```
+
 ## 参考
 
 [^1]: [Partial Function Application in Haskell](https://blog.carbonfive.com/partial-function-application-in-haskell)
