@@ -1115,11 +1115,11 @@ std::for_each(people.cbegin(), people.cend(),
               });
 ```
 
-### 4.2 柯理化:不同的方式看函数
+### 4.2 Currying:不同的方式看函数
 
 柯理化（currying）：从Haskell引进的词汇，把一个多参数函数转换成单参数函数, 并且返回一个能接受余下参数并返回结果的新函数。
 
-例如，一个函数f0需要输出2个参数，柯理化后，第一个函数f1接收第一个参数a1后返回一个函数f2，f2接受第二个参数a2后返回最终结果
+例如，一个函数f0需要输出2个参数，Currying后，第一个函数f1接收第一个参数a1后返回一个函数f2，f2接受第二个参数a2后返回最终结果
 
 ```c++
 // 正常版本的调用
@@ -1130,7 +1130,7 @@ auto f1 = f0(10);
 int f2 = f1(2);
 ```
 
-大于函数的柯理化版本
+大于函数的Currying版本
 
 ```c++
 // greater : (double, double) -> bool
@@ -1152,7 +1152,7 @@ greater_curried(2);     // 返回函数对象
 greater_curried(2)(3);  // false
 ```
 
-#### 4.2.1 更方便的创建柯理化函数的方式
+#### 4.2.1 更方便的创建Currying函数的方式
 
 ```c++
 auto print_person_cd(const person_t &person)
@@ -1185,7 +1185,9 @@ auto print_martha_to_cout = print_person_cd(martha, cout);
 print_martha_to_cout(person_t::name_only);
 ```
 
-#### 4.2.2 使用柯理化处理数据库权限
+注意并不是所有的调用方式都可以，必须确保按照变量输入的先后顺序来进行
+
+#### 4.2.2 使用Currying处理数据库权限
 
 ```c++
 result_t query(connection_t &connection,
@@ -1193,3 +1195,268 @@ result_t query(connection_t &connection,
                const std::string &table_name,
                const std::string &filter);
 ```
+
+考虑单一数据库，单一连接情况，创建一个query函数，使其能够满足以下API操作
+
+```c++
+auto table = "Movies";
+auto filter = "Name = \"Sintel\"";
+results = query(local_connection, session, table, filter);
+auto local_query = query(local_connection);
+auto remote_query = query(remote_connection);
+results = local_query(session, table, filter);
+auto main_query = query(local_connection, main_session);
+results = main_query(table, filter);
+auto movies_query = main_query(table);
+results = movies_query(filter);
+```
+
+#### 4.2.3 Currying和部分函数应用
+
+> 部分函数应用（Partial function application）：部分函数的应用是指以少于其总参数数的方式调用一个多参数函数。这将导致一个新的函数接受剩余的参数数。通过部分函数应用创建的简单函数是非常有用的，而且通常比匿名函数的语法要求要少得多^[1]。
+
+部分函数应用可以改变绑定变量顺序，而Currying先绑定第一个变量，这个是区别
+
+```c++
+auto local_query = query(local_connection); 
+auto local_query = std::bind(query, local_connection, _1, _2, _3); 
+auto session_query = std::bind(query, _1, main_session, _2, _3); 
+```
+
+当你有一个特定的函数，你想绑定它的参数时，部分函数应用很有用。在这种情况下，你知道这个函数有多少个参数，你可以准确地选择你想绑定到一个特定的值的参数。当你可以得到一个有任意数量参数的函数时，Currying在一般情况下特别有用。因为在这种情况下，不知道变量个数意味着`std::bind`就不能实现。
+
+### 4.3 函数构成
+
+《编程珠玑》里面的“读取一个文本文件，确定最常使用的n个词，并打印出这些词的排序列表及其频率。”问题，Doug McIlroy的UNIX shell脚本解决方式：
+
+```shell
+tr -cs A-Za-z '\n' |
+    tr A-Z a-z |
+    sort |
+    uniq -c |
+    sort -rn |
+    sed ${1}q
+```
+
+用C++来解决该问题的转换步骤：
+
+1. 有一个文件。从里面把单词分出来
+2. 把分出来的单词放到无序map里面`std::unordered_map<std::string, unsigned int>`，把每个单词的数目记录
+3. 遍历map中的元素，把map转换成pair，并且数目在前
+4. 排序
+5. 打印
+
+我们可以创建根据其他元素类型容器决定元素类型的容器
+
+```c++
+template <typename C,
+          typename T = typename C::value_type>
+std::unodered_map<T, unsigned int> count_occurrences(const C &collection);
+```
+
+最终看起来的形式
+
+```c++
+void print_common_words(const std::string& text)
+{
+    return print_pairs(
+        sort_by_frequency(
+            reverse_pairs(
+                count_occurrences(
+                    words(text)
+                )
+            )
+        )
+    );
+}
+```
+
+### 4.4 再谈函数提升
+
+提升（lifting）是一个编程术语，给你提供了一种方法，将一个给定的函数转化为一个适用于更广泛背景的类似函数。
+
+> 提升是一个概念，它允许你将一个函数转化为另一个（通常是更一般的）环境中的相应函数。^[2]
+
+拿字符串转大写举例
+
+```c++
+void to_upper(std::string &string);
+```
+
+实现方法比如：
+
+```c++
+void pointer_to_upper(std::string* str) 
+{ 
+    if (str) to_upper(*str); 
+}
+
+void vector_to_upper(std::vector<std::string>& strs) 
+{ 
+    for (auto& str : strs) { 
+        to_upper(str); 
+    } 
+}
+
+void map_to_upper(std::map<int, std::string>& strs) 
+{ 
+    for (auto& pair : strs) { 
+        to_upper(pair.second); 
+    } 
+} 
+```
+
+这种实现方法看起来毫无价值，实现取决于容器类型，不得不去实现针对各种变量类型的方法
+
+应该创建一个high-order函数，只关注于操作单一的字符串，和一个函数处理字符串指针，创建一个函数处理字符串向量和字符串map。这些函数称为提升函数，因为它们将对某一类型进行操作的函数提升到一个结构或包含该类型的集合。
+
+使用C++14特性来实现
+
+```c++
+void to_upper(std::string &string);
+
+// 指针提升
+template <typename Function>
+auto pointer_lift(Function f)
+{
+    return [f] (auto *item) {
+        if (item) {
+            f(*item);
+        }
+    }
+}
+
+// 集合提升
+template <typename Function>
+auto collection_lift(Function f)
+{
+    return [f] (auto &items) {
+        for (auto &item : items) {
+            f(item);
+        }
+    };
+}
+
+// 例子
+std::string str{"lift"};
+std::string *pstr = new std::string{"lift"};
+std::vector<std::string> vstr{"lift", "function"};
+to_upper(str);
+pointer_lift(to_upper)(pstr);
+collection_lift(to_upper)(vstr);
+```
+
+#### 4.4.1 颠倒成对的列表
+
+在之前那个问题中，第3步，涉及需要把map转化成pair集合并且数目要提到前面去，代码如下
+
+```c++
+template <typename C,
+          typename P1 = typename std::remove_cv<
+                typename C::value_type::first_type>::type,
+          typename P2 = typename C::value_type::second_type
+          >
+std::vector<std::pair<P2, P1>> reverse_pairs(const C &items)
+{
+    std::vector<std::pair<P2, P1>> result(item.size());
+    std::transform(
+        std::begin(items), std::end(items),
+        std::begin(result),
+        [] (const std::pair<const P1, P2> &p) {
+            return std::make_pair(p.second, p.first);
+        }
+    );
+    return result;
+}
+```
+
+`std::remove_cv`可以移除`const`和`volatile`
+
+## 5 纯粹:避免可变状态
+
+### 5.1 可变状态的问题
+
+例如电影类`movie_t`
+
+```c++
+// 电影类
+class movie_t {
+public:
+    double average_score() const;
+    ...
+
+private:
+    std::string name;
+    std::list<int> scores;
+};
+
+// 计算平均评分的方法
+double movie_t::average_score() const
+{
+    return std::accumulate(scores.begin(),
+                           scores.end(), 0)
+            / (double) scores.size();
+}
+```
+
+问题出现在当你在计算平均分时别人在添加分数，新添加的可能在里面也可能不在里面。`.size()`函数可能返回的时之前的大小。也就是迭代器事先确定好了，但是计算的时候又加了元素，所以size会变大，平均值变小了。
+
+C++11之前的`std::list`并不会保存列表大小，所以每次都会重新遍历计算。所以需要在电影类里面自己存储一个`size`
+
+```c++
+class movie_t {
+public:
+    double average_score() const;
+    ...
+
+private:
+    std::string name;
+    std::list<int> scores;
+    size_t scores_size;
+};
+```
+
+但是这样做的坏处时当项目越来越大，这种变量越来越多，重构的难度就越来越大。需要确保变量在使用的时候不可被修改。
+
+### 5.2 纯粹的函数和指称的透明度
+
+这些问题都来自一个设计缺陷：让软件系统中的几个组件负责相同的数据，而不知道另一个组件何时改变该数据。避免该问题出现的最简单的办法是禁止数据改动。
+
+但是说起来简单做起来难。很多时候和用户交互面临这个问题。保存的时候用户在进行输入，一个按钮按下，其他按钮不知道用户鼠标点击了什么。
+
+但是如果不提交改变任何状态，就不可能做任何事。只能计算你自己传入参数的程序。你不能
+做交互程序，不能保存数据到磁盘或者数据库，不能发送网络请求等。程序就毫无用处。
+
+首先还是理解纯和不纯函数。第1章说纯函数只使用传递给它们的参数值，以便返回结果。它们不需要有任何副作用来影响你程序中的任何其他函数或你系统中的任何其他程序。纯函数还需要在用相同的参数调用时总是返回相同的结果。
+
+现在通过一个概念名为引用透明性(referential transparency)更精确的定义纯粹，引用透明性是表达式的一个特征，而不仅仅是函数。我们可以说表达式是任何指定计算并返回结果的东西。如果我们把整个表达式替换成它的返回值，程序的行为也不会有什么不同，我们就说表达式是引用透明性的。如果一个表达式是引用透明性的，那么它就没有可观察到的副作用，因此该表达式中使用的所有函数都是纯的。
+
+> 参考透明度，是函数式编程中常用的一个术语，意味着给定一个函数和一个输入值，你将总是收到相同的输出。这就是说，在函数中没有使用外部状态。
+> 也就是函数的输出只取决于他的输入^[3]
+
+例如
+
+```c++
+// 全局变量G
+int G = 10;
+
+// 引用透明
+int pulsOne(int x)
+{
+    return x + 1;
+}
+
+// 非引用透明
+int plusG(int x)
+{
+    return x + G;
+}
+```
+
+## 参考
+
+[^1]: [Partial Function Application in Haskell](https://blog.carbonfive.com/partial-function-application-in-haskell)
+
+[^2]: [Lifting](https://wiki.haskell.org/Lifting)
+
+[^3]: [What is referential transparency?](https://stackoverflow.com/questions/210835/what-is-referential-transparency)
