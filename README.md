@@ -140,7 +140,9 @@ error: #error Intel(R) Threading Building Blocks 2018 is required; older version
 
 `std::accumulate`是特殊的函数，会顺序执行，不能够进行并行化
 
-![accumulate](./assets/accumulate.png)
+<center>
+<p><img src="https://s1.ax1x.com/2022/04/15/L8IinK.png"/></p>
+</center>
 
 使用`std::accumulate`计算行数
 
@@ -892,7 +894,9 @@ std::accumulate(numbers.cbegin(), numbers.cend(), 0,
                 arg1 + arg2 * arg2 / 2);
 ```
 
-![说明](./assets/20220410131731.png)
+<center>
+<p><img src="https://s1.ax1x.com/2022/04/15/L8Ik7D.png"/></p>
+</center>
 
 也可以算乘法或者进行排序
 
@@ -1478,6 +1482,172 @@ int main()
 }
 ```
 
+相比以下代码
+
+```c++
+int main()
+{
+    auto sum_max =
+        1 +
+        2 +
+        3;
+    std::cout << sum_max << std::endl;
+}
+```
+
+前面的`max`函数也能得出最后一样的结果，但是在这个过程中有输出打印到`std::cerr`了，所以并不是纯粹的。
+
+### 5.3 无副作用编程
+
+在纯函数变成中，创建新的值而不是改变值。不是改变对象的值，而是从之前那个对象创建拷贝，这个拷贝中值已经改变为新的。在电影例子中，当你在计算电影分数时，你已经有电影分数列表，别人不能更改，他们只能创建一个新的列表，在这个列表中加入新的分数。
+
+这种方法起初听起来是反直觉的；它似乎与我们通常认为的世界运作方式相反。但奇怪的是，它背后的想法几十年来一直是科幻小说的一部分，甚至被一些古希腊哲学家所讨论。有一个流行的概念，即我们生活在许多平行世界中的一个--每当我们做出一个选择，我们就会创造一个新的世界，在这个世界中我们做出了确切的选择，还有一些平行世界，我们在其中做出了不同的选择。
+
+在编程时，我们通常不关心所有可能的世界；我们只关心一个。这就是为什么我们认为我们在改变一个单一的世界，而不是一直在创造新的世界并抛弃以前的世界。这是一个有趣的概念，不管这是否是世界的运作方式，它在开发软件时确实有其优点。
+
+在迷宫中行走的例子
+
+```c++
+while (1) {
+    - 绘制迷宫和玩家
+    - 读取用户输入
+    - 是否可以移动（按下方向箭头键）检查目的地单元是否是墙，不是墙则移动到目的地
+    - 检查是否到达退出点，到达则显示消息，退出循环
+}
+```
+
+首先，迷宫不会改变，玩家的状态会改变，迷宫可以用不可改变的类。
+
+在移动的过程中，我们需要计算以下内容：
+
+- 移动的方向
+- 之前的位置，知道从哪里移动
+- 是否能够移动到目的地
+
+```c++
+position_t next_position(
+            direction_t direction,
+            const position_t &previous_position,
+            const maze_t &maze)
+{
+    const position_t desired_position{previous_position, direction};
+    return maze.is_wall(desired_position) ? previous_postion
+                                          : desired_position;
+}
+
+position_t::position_t(const position_t &original,
+                       direction_t direction)
+    : x { direction == Left  ? original.x - 1 : 
+          direction == Right ? original.x + 1 :
+                               original.x     }
+    , y { direction == Up    ? original.y + 1 :
+          direction == Down  ? original.y - 1 :
+                               original.y     }
+{}
+```
+
+最终的循环
+
+```c++
+void process_events(const maze_t &maze,
+                    const position_t &current_position)
+{
+    if (maze.is_exit(current_position)) {
+        return;
+    }
+
+    const direction_t direction = ...;
+    draw_maze();
+    draw_player(current_position, direction);
+    const auto new_position = next_position(direction,
+                                            current_position,
+                                            maze);
+    process_events(maze, new_position);
+}
+
+int main()
+{
+    const maze_t maze("maze.data");
+    process_events(maze, maze.start_position());
+}
+```
+
+更大的组件需要考虑使用moveable组件。你可以创建一个巨大的、包罗万象的世界结构，每当你需要改变其中的某些东西时，你就会重新创建。这将有很大的性能开销（即使你使用为函数式编程优化的数据结构，如第8章所述），并会大大增加你的软件的复杂性。
+
+相反，你通常会有一些可变的状态，你认为总是要复制和传递是低效的，你会对你的函数进行建模，使它们返回关于世界上应该改变的语句，而不是总是返回世界的新副本。这种方法所带来的是系统的可变和纯粹部分之间的明确分离。（设计模式中的命令模式）
+
+### 5.4 并发环境下的可变和不可变状态
+
+可变的状态会导致问题，因为它允许共享责任（这甚至违背了最佳的OOP实践）。这些问题在并发环境中得到了提升，因为责任可以由多个组件同时分担。
+
+```c++
+void client_disconnected(const client_t &client)
+{
+    // 释放客户端资源
+    ...
+    // 减少连接数目
+    connected_clients--;
+    if (connected_clients == 0) {
+        // 省电模式
+    }
+}
+```
+
+并行运行的时候`connected_clients--`会同时执行，比如初值为2，两个都是`2-1=1`，最终结果变为1。简单的解决办法：让编程人员通过`mutexes`来禁用数据的并发。
+
+> 我经常开玩笑说，与其捡起Djikstra的可爱缩写（mutex--代表互斥），不如把基本的同步对象称为 "瓶颈"。瓶颈有时是有用的，有时是不可缺少的，但它们从来不是好事。在最好的情况下，它们是一种必要的邪恶。任何鼓励任何人过度使用瓶颈、将瓶颈保持过久的东西都是不好的。这里的问题不仅仅是互斥锁和解锁中额外递归逻辑的直线性能影响，而是对整个应用程序并发性的更大、更广泛、更难以描述的影响。
+>
+> — David Butenhof on comp.programming.threads
+
+锁有时候很有用，但是需要少用，而不是作为不良软件设计的借口。在`for`循环中使用锁，是低级结构，对于实现并发编程的高级抽象很有用，但不应该在正常的代码中出现太多。
+
+阿姆达尔定律^[4]：
+
+假设原来在一个系统中执行一个程序需要时间$T_{old}$，其中某一个部分占的时间百分比为$\alpha$，然后，把这一部分的性能提升$k$倍。即这一部分原来需要的时间为$\alpha T_{old}$，现在需要的时间变为$(\alpha T_{old}/k)$。则整个系统执行此程序需要的时间变为：
+$$
+S=\frac{1}{(1-\alpha)+\alpha/k}
+$$
+
+<center>
+<p><img src="https://s1.ax1x.com/2022/04/15/L8IF0O.png"/></p>
+</center>
+
+解决问题的办法一个就是不使用并发，另外一个就是不使用改变的数据。而第三个办法就是使用改变数据但是不共享。
+
+你有四个选择：拥有不可变的数据而不共享，拥有可变的数据而不共享，拥有不可变的数据而共享，以及拥有可变的数据而共享。只有最后一种情况才会有问题。
+
+### 5.5 变为常量的重要性
+
+C++有两种办法限制改变：`const`和`constexpr`关键字
+
+```c++
+const std::string name{"John Smith"};
+std::string name_copy            = name;    // 拷贝
+std::string &name_ref            = name;    // 可改变引用，错误
+const std::string &name_constref = name;    // 不可改变引用
+std::string *name_ptr            = &name;   // 可改变指针，错误    
+const std::string *name_constptr = &name;   // 不可改变指针
+```
+
+`const`指针和`const`引用对象只能调用对象的`const`方法
+
+```c++
+class person_t
+{
+public:
+    std::string name() { return m_name; }
+    std::string name_const() const { return m_name; }
+
+private:
+    std::string m_name;
+};
+
+person_t person;
+const auto &p = person;
+std::string name = p.name();       // 错误
+std::string name = p.name_const(); // 正确
+```
+
 ## 参考
 
 [^1]: [Partial Function Application in Haskell](https://blog.carbonfive.com/partial-function-application-in-haskell)
@@ -1485,3 +1655,5 @@ int main()
 [^2]: [Lifting](https://wiki.haskell.org/Lifting)
 
 [^3]: [What is referential transparency?](https://stackoverflow.com/questions/210835/what-is-referential-transparency)
+
+[^4]: [阿姆达定律](https://zhuanlan.zhihu.com/p/48022905)
