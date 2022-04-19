@@ -1648,6 +1648,409 @@ std::string name = p.name();       // 错误
 std::string name = p.name_const(); // 正确
 ```
 
+#### 5.5.1 逻辑和内部常数
+
+创建不可改变的C++类的最简单方法就是声明所有成员变量为常量
+
+```c++
+class person_t
+{
+public:
+    const std::string name;
+    const std::string surname;
+    ...
+};
+```
+
+或者使用getter函数封装
+
+```c++
+class person_t
+{
+public:
+    std::string name() const;
+    std::string surname() const;
+
+private:
+    std::string m_name;
+    std::string m_surname;
+    ...
+};
+```
+
+使用`mutable`修饰成员变量使得`const`函数可以改变类成员变量
+
+```c++
+class person_t
+{
+public:
+    employment_history_t employment_history() const
+    {
+        std::uniqu_lock<std::mutex>
+            lock{m_employment_history_mutex};
+        
+        if (!m_employment_history.loaded()) {
+            load_employment_history();
+        }
+
+        return m_employment_history;
+    }
+};
+```
+
+#### 5.5.2 优化临时成员函数
+
+当你将类设计为不可变时，每当您想要创建setter成员函数时，你都需要创建一个函数，该函数返回一个对象的副本，在该副本中，特定的成员值被更改。
+
+```c++
+person_t new_person {
+    old_person.with_name("Jonne")
+              .with_surname("Jones);
+};
+```
+
+`with_name`方法返回一个全新的`person_t`实例
+
+实现：
+
+```c++
+class person_t
+{
+public:
+    person_t with_name(const std::string &name) const &
+    {
+        person_t result(*this);
+        result.m_name = name;
+        return result;
+    }
+
+    person_t with_name(const std::string &name) &&
+    {
+        person_t result(std::move(*this));
+        result.m_name = name;
+        return result;
+    }
+};
+```
+
+在函数后面使用`const &`表示该函数只能用在`const`引用对象上,而`&&`代表该函数只能用在右值对象上
+
+#### 5.5.3 const的陷阱
+
+你可能使用过多的`const`而掉进了陷阱
+
+**CONST禁止移动对象**
+
+```c++
+person_t some_function()
+{
+    person_t result;
+    // do something
+    return result;
+}
+...
+person_t person = some_function();
+```
+
+如果编译器不进行优化,返回`person_t`时会创建一个新的实例给调用者。但是编译器会进行优化，称为命名返回值优化（named
+return value optimization, NRVO）
+
+`const`函数会打破这一规则，返回`const`对象会导致副本
+
+**浅CONST**
+
+另一个问题是，CONST很容易被颠覆，例如
+
+```c++
+class company_t
+{
+public:
+    std::vector<std::string> employees_names() const;
+
+private:
+    std::vector<person_t *> m_employees;
+};
+```
+
+你不能通过`employees_names`修改员工名称，但是类中实际的`m_employees`是以指针的形式存在的，这意味着你不可以改变指针的值，但是指针指向的数据是可以修改的
+
+**propagate_const包装器**
+
+C++17之后的`propagete_const`可以解决这个问题，在`<experimental/propagate_const>`里面
+
+## 6 懒惰评估
+
+NOTE: lazy evaluation，计算表达式的评估（evaluation）也就是计算结果，lazy的意思可以参考lazy load（懒加载）
+
+计算需要花费时间，当两个矩阵A和B相乘，只需要写
+
+```c++
+auto P = A * B;
+```
+
+问题就是你可能不需要该计算结果，而浪费了CPU时间
+
+另外一种办法就是说有需要时，`P`应该被计算为`A *
+B`的结果。仅仅只是定义它，而不是立即做计算。当程序某个部分需要`P`的值，才来进行计算。不是在之前计算
+
+可以通过lambda表达式来定义
+
+```c++
+auto P = [A, B] {
+    return A * B;
+}
+```
+
+如果有人需要值，则可以调用`P()`
+
+但是带来的问题就是如果不止一次需要求值呢？这样就会每次都进行计算，所以在计算后记住值就很重要
+
+这就是懒惰的表现：你不提前做工作，而是尽可能地推迟工作。因为你很懒，你也想避免多次做同样的事情，所以在你得到结果后，你会记住它。
+
+### 6.1 C++的懒惰
+
+不幸的是不像其他语言一样，C++不支持懒惰评估，但是提供了一些工具可以仿真程序行为。
+
+`lazy_val`模板
+
+```c++
+template<typename F>
+class lazy_val
+{
+private:
+    F m_computation;
+    mutable bool m_cache_initialized;
+    mutable decltype(m_computation()) m_cache;
+    mutable std::mutex m_cache_mutex;
+
+public:
+    lazy_val(F computation) :
+            m_computation(computation),
+            m_cache_initialization(false)
+    {}
+
+    // 也可以写成
+    // const decltype(m_computation()) &operator() const
+    operator const decltype(m_computation()) & () const
+    {
+        std::unique_lock<std::mutex> lock{m_cache_mutex};
+
+        if (!m_cache_initialized) {
+            m_cache = m_computation();
+            m_cache_initialized = true;
+        }
+
+        return m_cache;
+    }
+};
+
+template <typename F>
+inline lazy_val<F> make_lazy_val(F &&computation)
+{
+    return lazy_val<F>(std::forward<F>(computation));
+}
+```
+
+该程序在多线程上还是次优的，只有在第一次计算时才需要加锁。也可以使用`std::call_once`来解决
+
+```c++
+template<typename F>
+class lazy_val
+{
+private:
+    F m_computation;
+    mutable decltype(m_computation()) m_cache;
+    mutable std::once_flag m_value_flag;
+public:
+    ...
+    operator const decltype(m_computation()) & () const
+    {
+        std::call_once(m_value_flag, [this] {
+            m_cache = m_computation();
+        });
+        return m_cache;
+    }
+};
+```
+
+### 6.2 懒惰作为优化技巧
+
+#### 6.2.1 懒惰的排序集合
+
+假设你有一个存储在向量中的几百个雇员的集合。 你有一个窗口，可以一次显示10个雇员；用户可以选择根据各种标准对雇员进行排序，如姓名、年龄、为公司工作的年限等等。 当用户选择根据员工的年龄进行排序时，程序应该显示10名最年长的员工，并允许用户向下滚动以查看其余的排序列表。
+
+你可以通过对整个集合进行排序并一次显示10名员工来轻松实现这一目标。尽管如果你希望用户对整个排序的列表感兴趣，这可能是一个很好的方法，但如果不是这样的话，这将是矫枉过正。用户可能只对前10个列表感兴趣，而每次排序的标准改变时，你都要对整个集合进行排序。
+
+为了使其尽可能高效，你需要想出一种懒惰的方式来对集合进行排序。 你可以把这个算法建立在quicksort上，因为它是最常用的内存排序算法。
+
+quicksort的基本变体所做的事情很简单：它从集合中抽取一个元素，将所有大于该元素的元素移到集合的开头，然后将其余的元素移到集合的结尾（你甚至可以使用`std::partition`来完成这个步骤）。 然后对两个新创建的分区重复这一步骤。
+
+为了使算法变得懒惰--只对集合中需要显示给用户的部分进行排序，而对其余部分不进行排序，你应该怎么改？你不能避免做分区步骤，但你可以推迟对你不需要排序的部分集合的递归调用。
+
+你只有在需要时才会对元素进行排序。 这样，你就避免了对数组中不需要排序的部分进行算法的递归调用。
+
+**懒惰快速排序的复杂度**
+
+因为C++标准规定了它所定义的所有算法的所需复杂度，有人可能对你刚才定义的懒惰quicksort算法的复杂度感兴趣。让集合的大小为n，并假设你想得到前k项。
+
+对于第一个分区步骤，你需要O(n)个操作；对于第二个，O(n/2)；以此类推，直到达到你需要完全排序的分区大小。总的来说，对于分区，你在普通情况下有O(2n)，这与O(n)相同。
+
+为了对大小为k的分区进行完全排序，你需要O(k log k)次操作，因为你需要执行常规的quicksort。因此，总的复杂度将是O(n + k log k)，这相当不错：这意味着如果你要搜索集合中的最大元素，你将和`std::max_element`算法处于同一水平。O(n)。而如果你要对整个集合进行排序，那将是O(n log n)，就像普通的quicksort算法。
+
+#### 6.2.2 用户界面中的项目视图
+
+虽然前面的例子的重点是展示如何修改一个特定的算法，使其更加懒惰，但你需要懒惰的原因是很常见的。每当你有大量的数据，但在有限的屏幕空间内向用户展示这些数据时，你就有机会通过偷懒来进行优化。一个常见的情况是，你的数据存储在某个数据库中，而你需要以这样或那样的方式向用户展示它。
+
+为了重用上一个例子的想法，设想你有一个包含员工数据的数据库。当显示员工时，你想把他们的名字和他们的照片一起显示出来。在前面的例子中，你需要懒惰的原因是，当你需要一次只显示10个项目时，对整个集合进行排序是多余的。
+
+现在你有一个数据库，它要为你做排序。这是否意味着你应该一次性加载所有的东西？当然不是。你没有做排序，但是数据库在做--就像懒惰排序一样，数据库倾向于在请求时对数据进行排序。如果你一次得到所有的员工，数据库将不得不对所有的员工进行排序。 但排序并不是唯一的问题。在你这边，你需要显示每个员工的图片--而加载图片需要时间和内存。如果你一次装入所有的东西，你会使你的程序慢下来，并使用太多的内存。
+
+相反，常见的方法是懒散地加载数据--只有在需要向用户展示时才加载。这样一来，你就可以使用更少的处理器时间和更少的内存。唯一的问题是，你不可能完全偷懒。你将无法保存所有先前加载的员工照片，因为这样做又会需要太多的内存。你需要开始忘记以前加载的数据，并在再次需要它时重新加载它。
+
+#### 6.2.3 通过缓存函数结果来修剪递归树
+
+C++可以根据需要自定义懒惰程度
+
+
+计算斐波那契数
+
+```c++
+unsigned int fib(unsigned int n)
+{
+    return n == 0 ? 0 :
+           n == 1 ? 1 :
+                    fib(n - 1) + fib(n - 2);
+}
+```
+
+该实现方式效率很低，有两个循环调用，重复了计算
+
+```c++
+// 使用缓存方式
+
+std::vector<unsigned int> cache{0, 1};
+
+unsigned int fib(unsigned int n)
+{
+    if (cache.size() > n) {
+        return cache[n];
+    } else {
+        const auto result = fib(n - 1) + fib(n - 2);
+        cache.push_back(result);
+        return result;
+    }
+}
+```
+
+这种方法的好处就是不需要发明新的算法计算，因为`fib`函数是纯的，你甚至不需要知道其计算原理
+
+计算斐波那契数列的高效缓存
+
+```c++
+// 如果不考虑多次计算，甚至只需要记录前两次的结果就可以实现了
+class fib_cache
+{
+public:
+    fib_cache() :
+            m_previous{0},
+            m_last{1},
+            m_size{2}
+    {}
+
+    size_t size() const
+    {
+        return m_size;
+    }
+
+    unsigned int operator[](unsigned int n) const
+    {
+        return n == m_size - 1 ? m_last :
+               n == m_size - 2 ? m_previous :
+                                 0;
+    }
+
+    void push_back(unsigned int value)
+    {
+        m_size++;
+        m_previous = m_last;
+        m_last = value;
+    }
+
+private:
+    int m_previous;
+    int m_last;
+    size_t m_size;
+};
+```
+
+#### 6.2.4 动态编程是一种懒惰的形式
+
+动态编程（Dynamic programming）是一种通过将复杂的问题分割成许多小问题来解决的技术。当你解决这些较小的问题时，你存储它们的解决方案，这样你就可以在以后重新使用它们。这种技术被用于许多现实世界的算法中，包括寻找最短路径和计算字符串距离。
+
+在某种意义上，你为计算第n个斐波那契数的函数所做的优化也是基于动态编程的。你有一个问题`fib(n)`，你把它分成两个小问题：`fib(n - 1)`和`fib(n - 2)`。(这对斐波那契数的定义很有帮助。)通过存储所有小问题的结果，你大大优化了初始算法。
+
+虽然这是对`fib`函数的明显优化，但情况并非总是如此。让我们考虑计算两个字符串之间的相似性问题。其中一个可能的衡量标准是列文斯坦距离（Levenshtein）1（或编辑距离），它是将一个字符串转化为另一个字符串所需的最小的删除、插入和替换的数量。比如说：
+
+- example和example——距离为0，字符串相同
+- example和exam——距离为3，需要删除3个字符
+- exam和eram——距离为1，需要把x换成r
+
+递归的计算列文斯坦距离
+
+```c++
+unsigned int lev(unsigned int m, unsigned int n)
+{
+    return m == 0 ? n :
+           n == 0 ? m :
+           std::min({
+                lev(m - 1, n) + 1,
+                lev(m, n - 1) + 1,
+                lev(m - 1, n - 1) + (a[m - 1] != b[n - 1])
+           });
+}
+```
+
+### 6.3 通用的记忆化
+
+记忆化缓存
+
+虽然通常为每个问题单独编写自定义缓存更好，这样你可以控制一个特定的值在缓存中停留多长时间（就像`fib(n)`的备忘录化版本的forgetful cache那样），并确定保持缓存的最佳结构（例如，对lev(m, n)使用矩阵），但有时能够将一个函数放入一个包装器并自动得到该函数的记忆化版本是很有用的。
+
+```c++
+template <typename Result, typename ... Args>
+auto make_memoized(Result (*f) (Args ...))
+{
+    // 创建一个缓存，将参数通过map映射到计算结果上。
+    // 如果你想在多线程环境中使用它，你需要用一个mutex来同步它的变化。
+    std::map<std::tuple<Args...>, Result> cache;
+
+    return [f, cache] (Args... args) mutable -> result
+    {
+        // 判断结果是否已经缓存
+        const auto args_tuple = 
+            std::make_tuple(args...);
+        const auto cached = cache.find(args_tuple);
+        if (cached == cache.end()) {
+            // 没有缓存就计算结果缓存
+            auto result = f(args...);
+            cache[args_tuple] = result;
+            return result;
+        } else {
+            // 有缓存直接返回缓存结果
+            return cached->second;
+        }
+    }
+}
+```
+
+简单来讲就是牺牲空间换取时间
+
+记忆化后的`fib`函数版本使用
+
+```c++
+
+```
+
 ## 参考
 
 [^1]: [Partial Function Application in Haskell](https://blog.carbonfive.com/partial-function-application-in-haskell)
