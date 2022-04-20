@@ -1,7 +1,7 @@
 ---
 title: C++函数式编程
 date: 2022-3-30 14:49:23
-updated: 2022-4-2 17:53:23
+updated: 2022-4-20 14:28:23
 tags:
   - C++
 excerpt: 《Functional Programming in C++》书中代码练习测试以及一些笔记
@@ -9,7 +9,9 @@ excerpt: 《Functional Programming in C++》书中代码练习测试以及一些
 
 # 说明
 
-《Functional Programming in C++》书中代码练习测试以及一些笔记
+《Functional Programming in C++》书中代码练习测试以及一些笔记，部分代码需要用到C++20可以使用在线编译器编译代码
+
+地址：https://coliru.stacked-crooked.com/
 
 ## 1 介绍
 
@@ -2048,8 +2050,300 @@ auto make_memoized(Result (*f) (Args ...))
 记忆化后的`fib`函数版本使用
 
 ```c++
+auto fibmemo = make_memoized(fib);
+
+std::cout << "fib(15) = " << fibmemo(15)
+          << std::endl;
+
+std::cout << "fib(15) = " << fibmemo(15)
+          << std::endl;
+```
+
+这个版本只会第二次执行得到优化，原因是`fib`函数里面没有调用缓存的版本
+
+```c++
+template <typename F>
+unsigned int fib(F &&fibmemo, unsigned int n)
+{
+    return n == 0 ? 0
+         : n == 1 ? 1
+         : fibmemo(n - 1) + fibmemo(n - 2);
+}
+```
+
+记忆化封装
+
+```c++
+class null_param {};
+
+template <class Sig, class F>
+class memoize_helper;
+
+template <class Result, class... Args, class F>
+class memoize_helper<Result (Args...), F>
+{
+private:
+    using function_type = F;
+    using args_tuple_type
+        = std::tuple<std::decay_t<Args>...>;
+
+    function_type f;
+    mutable std::map<args_tuple_type, Result> m_cache;
+    mutable std::recursive_mutex m_cache_mutex;
+
+public:
+    template <typename Function>
+    memoize_helper(Function &&f, null_param) :
+            f(f)
+    {}
+
+    memoize_helper(const memoize_helper &other) :
+            f(other.f)
+    {}
+
+    template <class... InnerArgs>
+    Result operator()(InnerArgs &&... args) const
+    {
+        std::unique_lock<std::recursive_mutex>
+                lock{m_cache_mutex};
+        
+        const auto args_tuple = 
+            std::make_tuple(args...);
+        const auto cached = m_cache.find(args_tuple);
+        if (cached != m_cache.end()) {
+            return cached->second;
+        } else {
+            auto &&result = f(
+                    *this,
+                    std::forward<InnerArgs>(args)...);
+            m_cache[args_tuple] = result;
+            return result;
+        }
+    }
+};
+
+template <class Sig, class F>
+memoize_helper<Sig, std::decay_t<F>>
+make_memoized_r(F &&f)
+{
+    return {std::forward<F>(F), detail::null_param()};
+}
+
+// 创建
+auto fibmemo = make_memoized_r<
+            unsigned int(unsigned int)>(
+                    [](auto &fib, unsigned int n) {
+                        std::cout << "calculating " << n << "!\n";
+                        return n == 0 ? 0
+                             : n == 1 ? 1
+                             : fib(n - 1) + fib(n - 2);
+                    });
+```
+
+### 6.4 表达式模板和惰性字符串连接
+
+一般字符串连接的实现方式
+
+```c++
+std::string fullname = title + " " + surname + ", " + name;
+```
+
+根据加法的左关联原则，可以看作
+
+```c++
+std::string fullname = (((title + " ") + surname) + ", ") + name;
+```
+
+该过程会创建销毁不需要的缓冲区域做临时计算
+
+```c++
+template <typename ...Strings>
+class lazy_string_concat_helper;
+
+template <typename LastString, typename ...Strings>
+class lazy_string_concat_helper<LastString,
+                                 Strings...>
+{
+private:
+    // 存储原来字符串的拷贝
+    LastString data;
+    lazy_string_concat_helper<Strings...> tail;
+
+public:
+    lazy_string_concat_helper(
+            LastString data,
+            lazy_string_concat_helper<Strings...> tail) :
+        data(data),
+        tail(tail)
+    {}
+
+    int size() const
+    {
+        return data.size() + tail.size();
+    }
+
+    template <typename It>
+    void save(It end) const
+    {
+        const auto begin = end - data.size();
+        std::copy(data.cbegin(), data.cend(),
+                  begin);
+        tail.save(begin);
+    }
+
+    operator std::string() const
+    {
+        std::string result(size(), '\0');
+        save(result.end());
+        return result;
+    }
+
+    lazy_string_concat_helper<std::string,
+                              LastString,
+                              Strings...>
+    operator+(const std::string &other) const
+    {
+        return lazy_string_concat_helper
+            <std::string, LastString, Strings...>(
+                other,
+                *this
+            );
+    }
+};
+
+// 由于这个是递归的实现，为了避免无限循环迭代，还需要一个基础版本
+tempalte <>
+class lazy_string_concat_helper<>
+{
+public:
+    lazy_string_concat_helper() {}
+
+    int size() const
+    {
+        return 0;
+    }
+
+    template <typename It>
+    void save(It) const {}
+
+    lazy_string_concat_helper<std::string>
+    operator+(const std::string &other) const
+    {
+        return lazy_string_concat_helper<std::string>(
+                other,
+                *this
+            );
+    }
+};
+```
+
+使用
+
+```c++
+lazy_string_concat_helper<> lazy_concat;
+
+int main(int argc, char *argv[])
+{
+    std::string name = "Jane";
+    std::string surname = "Smith"
+
+    const std::string fullname =
+        lazy_concat + surname + ", " + name;
+
+    std::cout << (std::string)fullname << std::endl;
+}
+```
+
+# 6.4.1 纯净和表达式模板
+
+如果用引用存储，在真正获取到值之前对原来数据的修改都会生效
+
+```c++
+template <typename LastString, typename ...Strings>
+class lazy_string_concat_helper<LastString,
+                                 Strings...>
+{
+private:
+    // 存储原来字符串的拷贝
+    const LastString &data;
+    lazy_string_concat_helper<Strings...> tail;
+
+public:
+    lazy_string_concat_helper(
+            const LastString& data,
+            lazy_string_concat_helper<Strings...> tail) :
+        data(data),
+        tail(tail)
+    {}
+    ...
+};
+
+// 未知原因段错误
+int main()
+{
+    std::string name = "Jane";
+    std::string surname = "Smith";
+    const auto fullname =
+            lazy_concat + surname + std::string(", ") + name;
+    name = "John";
+    std::cout << "begin print" << std::endl;
+    std::cout << (std::string)fullname << std::endl;
+}
 
 ```
+
+## 7 范围
+
+Ranges
+
+根据人的归属划分组
+
+```c++
+template <typename Persons, typename F>
+void group_by_team(Person &person,
+                   F team_for_person,
+                   const std::vector<std::string> &teams)
+{
+    auto begin = std::begin(persons);
+    const auto end = std::end(persons);
+    
+    for (const auto &team : teams) {
+        begin = std::partition(begin, end,
+                [&] (const auto &person) {
+                    return team == team_for_person(person);
+                });
+    }
+}
+```
+
+主要的问题是，STL算法将一个集合的开头和结尾的迭代器作为单独的参数，而不是采取集合本身。这有一些影响：
+
+- 这些算法不能作为结果返回一个集合。
+- 即使你有一个返回集合的函数，你也不能直接把它传递给算法：你需要创建一个临时变量，这样你就可以对它调用开始和结束。
+- 由于前面的原因，大多数算法都会对其参数进行变异，而不是让它们保持不可变，只是将修改后的集合作为结果返回。
+
+这些因素使得在不具备至少是局部可改变变量的情况下，很难实现程序逻辑。
+
+### 7.1 引入ranges
+
+之前章节的一段代码
+
+```c++
+std::vector<std::string> names = 
+    transform(
+        filter(people, is_female),
+        name
+    );
+```
+
+使用类似UNIX的管道语法规则，可以让代码更简洁
+
+```c++
+std::vector<std::string> names = people | filter(is_female)
+                                        | transform(name);
+```
+
+### 7.2 创建只读的数据视图
 
 ## 参考
 
