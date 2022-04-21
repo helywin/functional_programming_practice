@@ -13,6 +13,8 @@ excerpt: 《Functional Programming in C++》书中代码练习测试以及一些
 
 地址：https://coliru.stacked-crooked.com/
 
+或者自己编译gcc-11.2及以上版本安装
+
 ## 1 介绍
 
 ### 1.1 什么是函数式编程
@@ -2306,7 +2308,7 @@ void group_by_team(Person &person,
 {
     auto begin = std::begin(persons);
     const auto end = std::end(persons);
-    
+
     for (const auto &team : teams) {
         begin = std::partition(begin, end,
                 [&] (const auto &person) {
@@ -2329,7 +2331,7 @@ void group_by_team(Person &person,
 之前章节的一段代码
 
 ```c++
-std::vector<std::string> names = 
+std::vector<std::string> names =
     transform(
         filter(people, is_female),
         name
@@ -2343,7 +2345,76 @@ std::vector<std::string> names = people | filter(is_female)
                                         | transform(name);
 ```
 
+
+
 ### 7.2 创建只读的数据视图
+
+过滤代理迭代器的增加操作符
+
+```c++
+auto &operator++()
+{
+    ++m_current_position;
+    m_current_position =
+        std::find_if(m_current_position,
+                     m_end,
+                     m_predicate);
+    return *this;
+}
+```
+
+#### 7.2.2 ranges的transform函数
+
+转换代理迭代器的解引用运算操作
+
+```c++
+auto operator*() const
+{
+    return m_function(
+            *m_current_position
+        );
+}
+```
+
+名字直接通过`m_function`解出来了
+
+#### 7.2.4 range值的懒惰估计
+
+evaluation，解算，估计
+
+例子
+
+```c++
+std::vector<std::string> names = people | filter(is_female)
+                                        | transform(name)
+                                        | take(3);
+```
+
+分析：
+
+- 当`people | filter(is_female)`估计，创建了一个新的view，没有从集合里面取得单一的`person`
+- 把视图传给`| transform(name)`，创建了一个新的视图，仍然没有从里面取元素或者调用`name`函数
+- 应用`| take(3)`，同样只是创建了一个新的视图
+- 从`| take(3)`的结果构造字符串向量，进行计算
+
+当构造向量时，进行了以下操作：
+
+- 调用代理迭代器上面的解引用操作符，迭代器为`take`返回的范围
+- `take`创建的代理迭代器将请求传递给`transform`创建的代理迭代器。该迭代器传递请求
+- 试图解除对过滤器转换所定义的代理迭代器的引用。它穿过源集合，找到并返回第一个满足`is_female`谓词的人。这个是你第一次访问集合中的任何一个人，也是第一次调用`is_female`函数
+- 通过解除引用过滤器代理迭代器检索到的人被传递`name`函数，结果被返回给`take`迭代器，后者将其名字传递到名字向量中插入
+
+当插入一个元素后，下一个，然后再下一个，直到到达最后
+
+<center>
+    <p><img src="https://s1.ax1x.com/2022/04/21/LcFi5D.png"/></p>
+</center>
+
+### 7.3 ranges里面的可变值
+
+前面的例子是不改变原集合，有些时候需要改变初始集合。我们把这些变换称为动作（actions），和视图（views）相对
+
+动作转换的一个常见例子是排序。为了能够对一个集合进行排序，你需要访问它的所有元素并对它们重新排序。你需要改变原始集合，或者创建并保留整个集合的排序副本。当原始集合不是随机访问的（例如一个链表），并且不能有效地进行排序时，后者尤其重要；你需要把它的元素复制到一个可以随机访问的新集合中，并对它进行排序。
 
 ## 参考
 
