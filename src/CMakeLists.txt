@@ -7,3 +7,9 @@ add_executable(lambda lambda.cpp)
 add_executable(fib fib.cpp)
 add_executable(concat concat.cpp)
 add_executable(ranges ranges.cpp)
+target_link_libraries(ranges PRIVATE
+        range-v3
+        range-v3-meta
+        range-v3::meta
+        range-v3-concepts
+        )

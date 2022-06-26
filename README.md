@@ -2256,7 +2256,7 @@ int main(int argc, char *argv[])
 }
 ```
 
-# 6.4.1 纯净和表达式模板
+#### 6.4.1 纯净和表达式模板
 
 如果用引用存储，在真正获取到值之前对原来数据的修改都会生效
 
@@ -2415,6 +2415,67 @@ std::vector<std::string> names = people | filter(is_female)
 前面的例子是不改变原集合，有些时候需要改变初始集合。我们把这些变换称为动作（actions），和视图（views）相对
 
 动作转换的一个常见例子是排序。为了能够对一个集合进行排序，你需要访问它的所有元素并对它们重新排序。你需要改变原始集合，或者创建并保留整个集合的排序副本。当原始集合不是随机访问的（例如一个链表），并且不能有效地进行排序时，后者尤其重要；你需要把它的元素复制到一个可以随机访问的新集合中，并对它进行排序。
+
+> 需要使用到ranges-v3库
+
+统计所有出现过单词的集合
+
+```c++
+std::vector<std::string> words =
+        read_text() | action::sort
+                    | action::unique;
+```
+
+视图和动作的这种组合使你有能力选择什么时候你想懒惰地完成某件事，什么时候你想急切地完成某件事。有这种选择的好处是，当你不期望源集合中的所有项目都需要处理时，以及当项目不需要被处理超过一次时，你可以偷懒；如果你知道结果集合中的所有元素会被经常访问，你可以急于计算它们。
+
+### 7.4 使用划定的和无限的ranges
+
+划定的(delimited)，无限的(infinite)
+
+通常的测试是否到末尾的方法
+
+```c++
+auto i = std::begin(collection);
+const auto end = std::end(collection);
+for (; i != end; ++i) {
+    // ...
+}
+```
+
+并不需要迭代器，而是需要测试是否到末尾，这个特殊值叫做**哨兵**（sentinel)。可以更自由的测试是否到range的末尾
+
+### 使用划定的ranges优化处理输入ranges
+
+一个划定的ranges是一个你事先不知道终点的范围，但你有一个谓词函数可以告诉你什么时候到达终点。比如字符串，根据`\0`来判断是否结束
+
+还有比如用迭代器获取输入
+
+```c++
+std::accumulate(std::istream_iterator<double>(std::cin),
+                    std::istream_iterator<double>(),
+                    0);
+```
+
+迭代器`std::istream_iterator`实现哨兵值的方式例如：
+
+```c++
+template<typename T>
+bool operator==(const std::istream_iterator<T> &left,
+                const std::istream_iterator<T> &right)
+{
+    if (left.is_sentinel() && right.is_sentinel()) { return true; }
+    else if (left.is_sentinel()) {
+        // 测试是否为哨兵谓词          
+        // 对于右边的迭代器为真 
+    } else if (right.is_sentinel()) {
+        // 测试是否为哨兵谓词          
+        // 对于左边的迭代器  
+    } else {
+        // 两个迭代器都为正常迭代器,          
+        // 测试两个是否指向相同的位置
+    }
+}
+```
 
 ## 参考
 

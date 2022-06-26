@@ -9,6 +9,7 @@ else ()
     set(CMAKE_CXX_STANDARD 20)
     find_package(TBB REQUIRED)
 endif ()
+find_package(range-v3 CONFIG REQUIRED)
 
 
 add_subdirectory(src)
