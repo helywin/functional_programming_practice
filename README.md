@@ -2416,9 +2416,15 @@ std::vector<std::string> names = people | filter(is_female)
 
 动作转换的一个常见例子是排序。为了能够对一个集合进行排序，你需要访问它的所有元素并对它们重新排序。你需要改变原始集合，或者创建并保留整个集合的排序副本。当原始集合不是随机访问的（例如一个链表），并且不能有效地进行排序时，后者尤其重要；你需要把它的元素复制到一个可以随机访问的新集合中，并对它进行排序。
 
+<<<<<<< HEAD
 > 需要使用到ranges-v3库
 
 统计所有出现过单词的集合
+=======
+需要用到`range-v3`库，在https://github.com/ericniebler/range-v3
+
+给字符串排序去重复的例子
+>>>>>>> f959a4b (add code)
 
 ```c++
 std::vector<std::string> words =
