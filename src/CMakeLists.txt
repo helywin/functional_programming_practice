@@ -12,3 +12,7 @@ target_link_libraries(ranges PRIVATE
         )
 add_executable(action action.cpp)
 target_link_libraries(action range-v3::range-v3)
+add_executable(word_frequency word_frequency.cpp)
+target_link_libraries(word_frequency PRIVATE
+        range-v3::range-v3
+        )

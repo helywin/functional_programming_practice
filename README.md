@@ -2450,7 +2450,7 @@ for (; i != end; ++i) {
 
 并不需要迭代器，而是需要测试是否到末尾，这个特殊值叫做**哨兵**（sentinel)。可以更自由的测试是否到range的末尾
 
-### 使用划定的ranges优化处理输入ranges
+#### 7.4.1 使用划定的ranges优化处理输入ranges
 
 一个划定的ranges是一个你事先不知道终点的范围，但你有一个谓词函数可以告诉你什么时候到达终点。比如字符串，根据`\0`来判断是否结束
 
@@ -2461,6 +2461,8 @@ std::accumulate(std::istream_iterator<double>(std::cin),
                     std::istream_iterator<double>(),
                     0);
 ```
+
+> 该方法会一直接受`double`类型的输入，直到输入的类型不再为double
 
 迭代器`std::istream_iterator`实现哨兵值的方式例如：
 
@@ -2482,6 +2484,91 @@ bool operator==(const std::istream_iterator<T> &left,
     }
 }
 ```
+
+#### 7.4.2 使用sentinels创建无限的ranges
+
+sentinels方法为你提供了限定ranges的优化。但还有一点：你现在也能轻松地创建无限的ranges了。 无限ranges没有终点，就像所有正整数的范围。你有一个开始———数字0，但没有结束。
+
+虽然你为什么需要无限的数据结构并不明显，但它们时常会派上用场。使用整数范围的一个最常见的例子是枚举另一个范围内的项目。 想象一下，你有一个按分数排序的电影范围，你想把前10部电影和它们的位置写到标准输出。
+
+要做到这一点，你可以使用view::zip函数。它需要两个范围，并将这些范围中的项目配对。结果范围中的第一个元素将是一对项目：第一个范围的第一个项目和第二个范围的第一个项目。第二个元素将是一对，包含第一个范围的第二个项目和第二个范围的第二个项目，以此类推。一旦任何一个源范围结束，产生的范围就会结束。
+
+```c++
+template <typename Range>
+void write_top_10(const Range &xs)
+{
+    auto items = 
+            view::zip(xs, view::ints(1))
+                | view::transform([] (const auto &pair) {
+                      return std::to_string(pair.second) + " " + pair.first;
+                  })
+                | view::take(10);
+    for (const auto &item : items) {
+        std::cout << item << std::endl;
+    }
+}
+```
+
+当你在便利一个ranges但是只有在遍历的时候才知道有多长。你如果要根据长度遍历可能要遍历两次，第一次为了`view::zip`，第二次为了`view::transform`处理。
+
+这样的另一个好处就是代码更加通用，算法支持在无限ranges情况下工作
+
+## 7.5 使用ranges计算词频
+
+`range-v3`库里面有`istream_range`可以把`std::cin`的输入转成ranges ~~，标准库里面有[`std::ranges::istream_view`](https://devdocs.io/cpp/ranges/basic_istream_view)~~
+
+首先需要对输入字符串进行预处理，然后再进行筛选
+
+```c++
+
+std::string string_to_lower(const std::string &s)
+{
+return s | view::transform(tolower);
+}
+
+std::string string_only_alnum(const std::string &s)
+{
+return s | view::filter(isalnum);
+}
+
+std::vector<std::string> words =
+        istream_range<std::string>(std::cin)
+        | view::transform(string_to_lower)
+        | view::transform(string_only_alnum)
+        | view::remove_if(&std::string::empty);  // 类成员函数指针
+
+const auto results =
+        words | view::group_by(std::equal_to<>())
+              | view::transform([] (cosnt auto &group) {
+                    const auto begin = std::begin(group);
+                    const auto end = std::end(group);
+                    const auto count = std::distance(begin, end);
+                    const auto word = *begin;
+                    return std::make_pair(count, word);
+                })
+              | to_vector | action::sort;   //转成vector排序
+
+```
+
+> 这段代码怎么都编译不过！！
+
+## 8 函数式数据结构
+
+到目前为止，我主要谈的是更高层次的函数式编程概念，我们花了相当长的时间来研究没有可改变状态的编程的好处。问题是，程序往往有许多移动部件。在第五章讨论纯粹性的时候，我说过，其中一个选择是只让主要组件拥有可变的状态。所有其他组件都是纯粹的，并计算出一系列应该在主组件上执行的变化，但实际上并不改变任何东西。然后主组件可以对自己执行这些变化。
+
+这种方法在程序的纯粹部分和处理可变状态的部分之间建立了明确的分离。问题是，设计这样的软件往往不容易，因为你需要注意功能数据结构计算出的状态变化的应用顺序。如果你没有正确地做到这一点，你可能会遇到类似于在并发环境中处理易变状态时的数据竞赛。
+
+因此，有时有必要避免所有的可变--甚至没有中央可变的状态。如果你使用标准的数据结构，每当你需要一个新版本的数据时，你就必须复制这些数据。 每当你想改变一个集合中的一个元素时，你就需要创建一个新的集合，这个集合与旧的集合相同，但所需的元素已经改变。在使用标准库提供的数据结构时，这样做效率很低。在这一章中，我们将介绍那些可以有效复制的数据结构。创建一个数据结构的修改副本也将是一个高效的操作。
+
+### 8.1 不可改变的链表
+
+使用共享指针管理链表内部元素，然后链表的修改可以根据修改的位置减少总体的复制量
+
+#### 8.2 不可改变的vector-like数据
+
+(Copy-on-write), lazy copy
+
+并不是每次都进行复制，而是对之前的数据进行切片记录到新的数据里面，直到最后需要进行转换写入才把真正的数据计算出来
 
 ## 参考
 
