@@ -2416,15 +2416,11 @@ std::vector<std::string> names = people | filter(is_female)
 
 动作转换的一个常见例子是排序。为了能够对一个集合进行排序，你需要访问它的所有元素并对它们重新排序。你需要改变原始集合，或者创建并保留整个集合的排序副本。当原始集合不是随机访问的（例如一个链表），并且不能有效地进行排序时，后者尤其重要；你需要把它的元素复制到一个可以随机访问的新集合中，并对它进行排序。
 
-<<<<<<< HEAD
-> 需要使用到ranges-v3库
-
 统计所有出现过单词的集合
-=======
-需要用到`range-v3`库，在https://github.com/ericniebler/range-v3
+
+> 需要用到`range-v3`库，在<https://github.com/ericniebler/range-v3>
 
 给字符串排序去重复的例子
->>>>>>> f959a4b (add code)
 
 ```c++
 std::vector<std::string> words =
@@ -2569,6 +2565,221 @@ const auto results =
 (Copy-on-write), lazy copy
 
 并不是每次都进行复制，而是对之前的数据进行切片记录到新的数据里面，直到最后需要进行转换写入才把真正的数据计算出来
+
+## 9 代数数据类型和模式匹配
+
+需要解决的一个问题，覆盖非预期或者无效状态
+
+假设对网页上文字计数，步骤分为
+
+- 初始状态，还没开始计数
+- 计数状态，接受网页，计数
+- 最终状态，完全接收完毕，计数完毕
+
+你可能需要以下数据结构
+
+```c++
+struct state_t {
+    bool started = false;
+    bool finished = false;
+    unsigned count = 0;
+    socket_t web_page;
+};
+```
+
+### 9.1 代数数据类型
+
+函数式编程世界里，从老的类型构建新的类型通常通过两种方式：求和(sum)和乘积(product)（因此，这些新的类型被称为代数性的）。A和B类型的乘积是一个包含A和B的类型（它将是A类所有值的集合与B类所有值的集合的笛卡尔乘积）。比如状态是两个bool类型和unsigned类型和socket_t类型的乘积。多个的类似。
+
+当我们希望组合多种类型为一种，可以创建新的类或者使用`std::pair`或者`std::tuple`当我们不需要成员值被命名
+
+```c++
+bool operator<(const person_t& left, const person_t& right)
+{
+    return std::tie(left.m_surname, left.m_name) <
+           std::tie(right.m_surname, right.m_name);
+}
+```
+
+这段代码会先比较`m_surname`，再比较`m_name`
+
+由于`std::pair`和`std::tuple`里面的成员名称并不确定，所以要少用或者限定适用范围只在本地，而不是把接口暴露给别人使用
+
+枚举是一种特殊的总和类型。你通过指定它可以持有的不同值来定义一个枚举。该枚举类型的一个实例可以精确地持有这些值中的一个。如果你把这些值当作一个元素的集合，那么枚举就是这些集合的和类型。
+
+#### 9.1.1 通过继承对类型归总(sum)
+
+父类
+
+```c++
+class state_t
+{
+protected:
+    state_t(int type) :
+        type(type) 
+    {}
+    
+public:
+    virtual ~state_t() {}
+    int type;
+};
+```
+
+表示不同状态的类型
+
+```c++
+class init_t : public state_t
+{
+public:
+    enum { id = 0 };
+    init_t() : 
+        state_t(id) 
+    {}
+};
+
+class running_t : public state_t
+{
+public:
+    enum { id = 1 };
+    running_t() :
+        state_t(id)
+    {}
+
+    unsigned count() const
+    {
+        return m_count;
+    }
+
+private:
+    unsigned m_count = 0;
+    socket_t m_web_pages;
+};
+
+class finished_t : public state_t
+{
+public:
+    enum { id = 2 };
+    finished_t(unsigned count) :
+        state_t(id),
+        m_count(count)
+    {}
+
+    unsigned count() const
+    {
+        return m_count;
+    }
+
+    // ...
+
+private:
+    unsigned m_count;
+};
+```
+
+主程序需要一个指针指向`state_t`，通常的做法是用`unique_ptr`
+
+主程序代码
+
+```c++
+class program_t
+{
+public:
+    program_t() :
+        m_state(std::make_unique<init_t>())
+    {}
+
+    // ... 其他代码
+
+    void counting_finished()
+    {
+        assert(m_state->type == running_t::id);
+        auto state = static_cast<running_t*>(m_state.get());
+        m_state = std::make_unique<finished_t>(state->count());
+    }
+
+private:
+    std::unique_ptr<state_t> m_state;
+};
+```
+
+使用这种方法，您不再具有无效状态。如果尚未开始计数，则计数不能大于零（在这种情况下，计数甚至不存在）。计数过程结束后，计数不会意外更改，您可以准确地知道程序始终处于哪个状态。通过状态限制了数据的生命周期
+
+此外，您不需要关注为特定状态获取的资源的生命周期。关注`web_page`。在将所有需要的变量放入`state_t`结构的原始方法中，您可能会忘记在读取完套接字后关闭它。只要`state_t`的实例存在，套接字实例就会继续存在。通过使用sum类型，当您切换到另一个状态时，特定状态所需的所有资源将自动释放。在这种情况下，`running_t`的析构函数将关闭`web_page`的套接字。
+
+当你使用继承来实现和类型时，你会得到开放的和类型。状态可以是任何继承自`state_t`的类，这使得它很容易被扩展。 虽然这有时很有用，但你通常知道程序应该有哪些可能的状态，你不需要允许其他组件动态地扩展状态集。
+
+继承的方法也有一些缺点。如果你想保持它的开放性，你需要使用虚拟函数和动态调度（至少对于析构器），你必须使用类型标签（程序里面的type）以避免依赖缓慢的`dynamic_cast`，而且你必须在堆上动态地分配状态对象。你还需要注意不要让`m_state`指针失效（`nullptr`）。
+
+#### 9.1.2 通过std::variant对类型归总(sum)
+
+状态代码去掉继承关系
+
+```c++
+class init_t
+{
+public:
+    init_t()
+    {}
+};
+
+class running_t
+{
+public:
+    running_t()
+    {}
+
+    unsigned count() const
+    {
+        return m_count;
+    }
+
+private:
+    unsigned m_count = 0;
+    socket_t m_web_pages;
+};
+
+class finished_t
+{
+public:
+    finished_t(unsigned count) :
+        m_count(count)
+    {}
+
+    unsigned count() const
+    {
+        return m_count;
+    }
+
+    // ...
+
+private:
+    unsigned m_count;
+};
+```
+
+主程序代码
+
+```c++
+class program_t
+{
+public:
+    program_t() :
+        m_state(init_t())
+    {}
+
+    // ...
+
+    void counting_finished()
+    {
+        auto *state = std::get_if<running_t>(&m_state);
+        assert(state != nullptr);
+        m_state = finished_t(state->count());
+    }
+
+private:
+    std::variant<init_t, running_t, state_t> m_state;
+};
+```
 
 ## 参考
 
