@@ -2781,6 +2781,49 @@ private:
 };
 ```
 
+与第一个解决方案相比，`std::variant`的好处很多。 它几乎不需要模板，因为类型标记是由`std::variant`处理的。你也不需要创建一个继承层次，其中所有被求和的类型都必须继承自一个超类型；你可以求和现有的类型，如字符串和向量。另外，`std::variant`不执行任何动态内存分配。变体实例将像普通的联合体一样，拥有你想要存储的最大类型的大小（加上几个字节用于簿记）。
+
+> 可以参考FlatBuffer里面的Union类型，void*指针加上类型枚举
+
+`std::any`类是基于继承的开放总和类型的一个替代方案。 它是一个类型安全的容器，用于存放任何类型的值。 尽管它在某些情况下很有用，但它并不像`std::variant`那样有效，而且不应该被用作`std::variant`的简单到类型的替代。
+
+#### 9.1.3 实现特定状态
+
+有了`program_t`后可以实现具体逻辑，但是具体在什么地方
+
+最佳的办法是在状态里面实现，而不是放在`program_t`中每次需要判断当前状态然后执行不同的代码，例如
+
+```c++
+class running_t
+{
+public:
+    running_t(const std::string &url) :
+        m_web_page(url)
+    {}
+
+    void count_words()
+    {
+        m_count = std::distance(
+                std::istream_iterator<std::string>(m_web_page),
+                std::istream_iterator<std::string>());
+    }
+
+    unsigned count() const
+    {
+        return m_count;
+    }
+private:
+    unsigned m_count = 0;
+    std::istream m_web_page;
+};
+```
+
+把逻辑放在`program_t`类之外，把所有的东西放在状态类中。这种方法消除了使用`get_if`和`index`检查的需要，因为只有当你处于某个特定状态时，代表该状态的类的成员函数才会被调用。缺点是现在的状态类需要按程序状态的变化，这意味着它们需要互相了解，从而破坏了封装。
+
+#### 9.1.4 特殊归总类型：Optional值
+
+
+
 ## 参考
 
 [^1]: [Partial Function Application in Haskell](https://blog.carbonfive.com/partial-function-application-in-haskell)
