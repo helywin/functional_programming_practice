@@ -2822,7 +2822,59 @@ private:
 
 #### 9.1.4 特殊归总类型：Optional值
 
+实现为空或者有值
 
+```c++
+struct nothing_t{};
+
+template<T>
+using optional = std::variant<nothing_t, T>;
+```
+
+`std::optional`是比`std::variant`更特定化的归总类型
+
+#### 9.1.5 用于错误处理的归总类型
+
+如果需要追踪错误，可以创建一种值，要么包含值要么包含错误在里面
+
+```c++
+template<typename T, typename E>
+class expected {
+private:
+    union {
+        T m_value;
+        E m_error;
+    };
+
+    bool m_valid;
+
+    T &get()
+    {
+        if (!m_valid) {
+            throw std::logic_error("Missing a value");
+        }
+        return m_value;
+    }
+
+    E &error()
+    {
+        if (m_valid) {
+            throw std::logic_error("There is no error");
+        }
+        return m_error;
+    }
+
+    template <typename ...Args>
+    static expected sucess(Args &&...params)
+    {
+        expected result;
+        result.m_valid = true;
+        new (&result.m_value)
+            T(std::forward<Args>(params)...);
+        return result;
+    }
+};
+```
 
 ## 参考
 
