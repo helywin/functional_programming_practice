@@ -18,3 +18,4 @@ target_link_libraries(word_frequency PRIVATE
         )
 
 add_executable(tie tie.cpp)
+add_executable(expected expected.cpp)
