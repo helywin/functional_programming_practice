@@ -1,7 +1,7 @@
 ---
 title: C++函数式编程
 date: 2022-3-30 14:49:23
-updated: 2022-4-20 14:28:23
+updated: 2022-8-9 23:51:23
 tags:
   - C++
 excerpt: 《Functional Programming in C++》书中代码练习测试以及一些笔记
@@ -3025,7 +3025,7 @@ int main()
 
 对于你创建的类型和函数，你也应该这样做。与其考虑你需要哪些数据来覆盖你的程序可能处于的所有状态，并将它们放在一个类中，不如考虑如何定义数据以覆盖你的程序可能处于的状态。
 
-我们使用一个新的设想：[Tennis kata](https://codingdojo.org/kata/Tennis/)，来证明这个。他的目的是要实现一个简单的网球比赛。在tennis中，两名球员（假装不存在双打）互相比赛。每当一个球员不能把球送回对方的球场时，该球员就失去了球，分数也会被更新。
+我们使用一个新的设想：[Tennis kata](https://codingdojo.org/kata/Tennis/)，来证明这个。他的目的是要实现一个简单的网球比赛。在tennis中，两名球员（假设不存在双打）互相比赛。每当一个球员不能把球送回对方的球场时，该球员就失去了球，分数也会被更新。
 
 网球的计分系统很独特，但很简单：
 
@@ -3069,9 +3069,86 @@ class tennis_t
 
 #### 9.2.2 一个更复杂的方法：自上而下的设计
 
-比赛分为两种主要状态：分数为数字的，还有就是在两点或优势状态。正常状态计分保持两个玩家的分数。然而事情并不简单。如果使用之前定义的`points`枚举，你会有两个玩家都有40分的可能性，但是这不允许，应该被表示为两分状态。
+比赛分为两种主要状态：分数为数字的，还有就是在两点或优势状态。正常状态计分保持两个玩家的分数。然而事情并不简单。如果使用之前定义的`points`枚举，你会有两个玩家都有40分的可能性，但是这不允许，应该被报告为两分状态。
 
+去掉`forty`状态，用正常分数和40分数表示
 
+```c++
+class tennis_t
+{
+    enum class points
+    {
+        love,
+        fifteen,
+        thirty,
+    };
+
+    enum class player
+    {
+        player_1,
+        player_2,
+    };
+
+    // 普通积分状态
+    struct normal_scoring
+    {
+        points player_1_points;
+        points player_2_points;
+    };
+
+    // 40分状态
+    struct forty_scoring
+    {
+        player leading_player;
+        points other_player_scores;
+    };
+
+    // 两点状态
+    struct deuce {};
+
+    // 一方优势状态
+    struct advantage
+    {
+        player player_with_advantage;
+    };
+
+    // 定义归总类型
+    std::variant
+        <normal_scoring,
+         forty_scoring,
+         deuce,
+         advantage
+        > m_state;
+};
+```
+
+{% note NOTE %}
+有一个状态是可能缺失的：游戏结束状态，它应该表示哪个玩家获胜。如果你想打印出赢家并终止程序，你不需要添加这个状态。但如果你想让程序继续运行，你也需要实现这个状态。这很容易做到；你只需要创建另一个结构，用一个成员变量来存储赢家，并扩展`m_state`的变量。
+{% endnote %}
+
+通常也不需要做这么多去移除无效状态（你可能决定手动解决40-40的情况），但是这种建模方式把不同的状态分割成独立子部件，分别描述
+
+### 9.3 用模式匹配更好地处理代数数据类型
+
+在实现带有`optional`值、`varant`和其他代数数据类型的程序时，主要的问题是，每次你需要一个值时，你都必须检查它是否存在，然后从它的包装类型中提取。 即使你创建了没有和类型的状态类，你也需要同等的检查，但只是在你设置值的时候，而不是每次你想访问它们的时候。
+
+因为这个过程可能很繁琐，所以许多函数式编程语言提供了一种特殊的语法，使之更容易。通常情况下，这种语法看起来像switch-case语句，不仅可以与特定的值相匹配，还可以与类型和更复杂的模式相匹配：
+
+```c++
+switch (state) {
+    case normal_score_state:
+        ...
+        break;
+    case forty_scoring_state:
+        ...
+        break;
+    ...
+};
+```
+
+但是糟糕的是这种代码只能在state是整型的情况下运作。
+
+> 参考 [访问者模式]({% post_path '设计模式笔记' %}#Visitor)
 
 ## 参考
 
