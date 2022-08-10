@@ -1,7 +1,7 @@
 ---
 title: C++函数式编程
 date: 2022-3-30 14:49:23
-updated: 2022-8-9 23:51:23
+updated: 2022-8-10 23:41:23
 tags:
   - C++
 excerpt: 《Functional Programming in C++》书中代码练习测试以及一些笔记
@@ -3171,6 +3171,141 @@ struct overloaded : Ts... { using Ts::operator()...; };
 
 template <typename ...Ts> overloaded(Ts...) -> overloaded<Ts...>;
 ```
+
+`overloaded`模板接受一个函数对象的列表，并创建一个新的函数对象，将所有提供的函数对象的调用操作符作为自己的对象（using Ts::operator()...部分）。
+
+{% note NOTE %}
+实现重载结构的代码片断使用了C++17中引入的类的模板参数推导。 模板参数推导依赖于类的构造函数来找出模板参数。你可以提供一个构造函数，或者像前面的例子那样提供一个推导准则。
+{% endnote %}
+
+测试`overloaded`的代码：
+
+```c++
+#include <variant>
+#include <string>
+#include <iostream>
+
+template<typename ...Ts>
+struct overloaded : Ts ...
+{
+    using Ts::operator()...;
+};
+
+template<typename ...Ts>
+overloaded(Ts...) -> overloaded<Ts...>;
+
+struct Point
+{
+    double x;
+    double y;
+};
+
+int main()
+{
+    using V = std::variant<int, double, std::string, Point>;
+    V v_int{1};
+    V v_dbl{1.0};
+    V v_str{"aa"};
+    V v_pnt{Point{1.0, 2.0}};
+
+    auto visitor = overloaded{
+            [](int i) {
+                std::cout << "int:" << i << std::endl;
+            },
+            [](double i) {
+                std::cout << "double:" << i << std::endl;
+            },
+            [](std::string i) {
+                std::cout << "std::string:" << i << std::endl;
+            },
+            [](Point i) {
+                std::cout << "Point:{" << i.x << "," << i.y << "}" << std::endl;
+            },
+    };
+
+    std::visit(visitor, v_int);
+    std::visit(visitor, v_dbl);
+    std::visit(visitor, v_str);
+    std::visit(visitor, v_pnt);
+}
+```
+
+结果：
+
+```text
+int:1
+double:1
+std::string:aa
+Point:{1,2}
+```
+
+overloaded的实现可以在[std::visit](https://devdocs.io/cpp/utility/variant/visit)的例子里面找到。现在可以简化网球状态的switch代码
+
+```c++
+void point_for(player which_player)
+{
+    std::visit(
+        overloaded {
+            [&] (const normal_scoring &state) {
+                // 增加分数，或者切换状态
+            },
+            [&] (const forty_scoring &state) {
+                // 运动员胜利，或者切换到两点
+            },
+            [&] (const deuce &state) {
+                // 切换到优势状态
+            },
+            [&] (const advantage &state) {
+                // 玩家胜利，或者切换到两点
+            }
+        },
+        m_state);
+    );
+}
+```
+
+{% note NOTE %}
+λ表达式可以理解为callable class，本质上也是一个类
+{% endnote %}
+
+`std::visit`调用重载函数对象，该对象将给定的类型与它的所有重载进行匹配，并执行最匹配的那一个（类型上）。 虽然语法没有那么漂亮，但这段代码提供了switch语句的有效等价物，它对存储在变体中的对象的类型起作用。
+
+你可以很容易地为`std::optional`、为`expected`类、甚至为基于继承的和类型创建一个访问函数，这将给你一个统一的语法来处理你创建的所有和类型。
+
+### 9.4 用Mach7库进行强大的模式匹配
+
+到目前为止，你已经看到了对类型的简单模式匹配。你可以通过把if-else链隐藏在类似于`overloaded`的结构后面，轻松地创建对特定值的匹配。
+
+但如果能够对更高级的模式进行匹配，那就更有用了。例如，当玩家少于30分时，你可能需要单独的处理程序来处理`normal_scoring`，以及当他们有30分时，因为在这种情况下，你需要将比赛状态改为`forty_scoring`。
+
+不幸的是，C++没有一个允许这样做的语法。但一个叫Mach7的库可以让你写出更高级的模式，尽管语法有点尴尬。
+
+> *使用Mach7来更高效的进行模式匹配*
+> [Mach7库](https://github.com/solodon4/Mach7)是由Yuriy Solodkyy、Gabriel Dos Reis和Bjarne Stroustrup创建的，作为一个实验，最终将被用作扩展C++以支持模式匹配的基础。尽管这个库是作为一个实验开始的，但它被认为足够稳定，可以普遍使用。它通常比访问者模式（不要与std::visitor的变体混淆）更有效。Mach7的主要缺点是它的语法。
+
+使用Mach7函数形式变为：
+
+```c++
+void point_for(player which_player)
+{
+    Match(m_state)
+    {
+        ...
+        // 如果拥有40分的选手赢得了球，他们就赢得了比赛；不需要考虑另一个选手的分数。
+        Case(C<forty_scoring>(which_player, _))
+        // 如果球是由没有得到40分的一方赢得的（前面的情况不是比赛），而另一方目前的分数是30分，那么比赛就处于两分。
+        Case(C<forty_scoring>(_, 30))
+        // 如果前面两种情况都不符合，则增加该玩家的积分。
+        Case(C<forty_scoring>())
+        ...
+    }
+    EndMatch
+}
+```
+
+## 单子
+
+
 
 ## 参考
 
