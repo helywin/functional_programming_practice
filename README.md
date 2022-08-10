@@ -3150,6 +3150,28 @@ switch (state) {
 
 > 参考 [访问者模式]({% post_path '设计模式笔记' %}#Visitor)
 
+现在想象一个世界，这个代码也可以测试字符串，并且可以与`variant`一起工作，根据变体`variant`中的变量类型执行不同的情况。如果每个案例都是类型检查、值检查和你可以定义的自定义谓词的组合呢？这就是大多数函数式编程语言中模式匹配的样子。
+
+C++提供了为模板元编程做模式匹配的方法，但是对于普通程序来说我们需要另外的办法。标准库提供了`std::visit`函数获取`std::variant`和对应里面存储的值执行的函数。例如，打印函数可以这么写：
+
+```c++
+std::visit([] (const auto &value) {
+                std::cout << value << std::endl;
+            },
+            m_state);
+```
+
+使用`std::visit`通常有用但是大多数情况下效率不高。如果需要根据不同的值执行不同的函数，可以用`case`语句。
+
+你可以通过创建一个重载函数对象来做到这一点，它将为不同的类型分开实现；正确的函数将根据存储在变体实例中的值的类型被调用。为了使之尽可能简短，让我们使用C++17中的语言特性。 与旧版编译器兼容的实现可在随附的代码示例中找到：
+
+```c++
+template <typename ...Ts>
+struct overloaded : Ts... { using Ts::operator()...; };
+
+template <typename ...Ts> overloaded(Ts...) -> overloaded<Ts...>;
+```
+
 ## 参考
 
 [^1]: [Partial Function Application in Haskell](https://blog.carbonfive.com/partial-function-application-in-haskell)
