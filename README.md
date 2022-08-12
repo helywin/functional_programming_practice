@@ -1,7 +1,7 @@
 ---
 title: C++函数式编程
 date: 2022-3-30 14:49:23
-updated: 2022-8-10 23:41:23
+updated: 2022-8-12 23:08:23
 tags:
   - C++
 excerpt: 《Functional Programming in C++》书中代码练习测试以及一些笔记
@@ -3148,7 +3148,7 @@ switch (state) {
 
 但是糟糕的是这种代码只能在state是整型的情况下运作。
 
-> 参考 [访问者模式]({% post_path '设计模式笔记' %}#Visitor)
+> 参考 [访问者模式]({% post_path '设计模式笔记' %}#visitor)
 
 现在想象一个世界，这个代码也可以测试字符串，并且可以与`variant`一起工作，根据变体`variant`中的变量类型执行不同的情况。如果每个案例都是类型检查、值检查和你可以定义的自定义谓词的组合呢？这就是大多数函数式编程语言中模式匹配的样子。
 
@@ -3280,7 +3280,8 @@ void point_for(player which_player)
 
 不幸的是，C++没有一个允许这样做的语法。但一个叫Mach7的库可以让你写出更高级的模式，尽管语法有点尴尬。
 
-> *使用Mach7来更高效的进行模式匹配*
+> **使用Mach7来更高效的进行模式匹配**
+>
 > [Mach7库](https://github.com/solodon4/Mach7)是由Yuriy Solodkyy、Gabriel Dos Reis和Bjarne Stroustrup创建的，作为一个实验，最终将被用作扩展C++以支持模式匹配的基础。尽管这个库是作为一个实验开始的，但它被认为足够稳定，可以普遍使用。它通常比访问者模式（不要与std::visitor的变体混淆）更有效。Mach7的主要缺点是它的语法。
 
 使用Mach7函数形式变为：
@@ -3303,9 +3304,133 @@ void point_for(player which_player)
 }
 ```
 
-## 单子
+## 10 单子
+
+单子（Monads）
+
+### 10.1 不是你父亲的函子
+
+*函子*是数学的一个抽象分支——*范畴论*中的一个概念，它的正式定义听起来和它的理论一样抽象。我们将以一种对C++开发人员来说更直观的方式来定义它。
+
+如果一个类模板`F`有一个定义在它上面的转换（或映射）函数，那么它就是一个函子（见图10.1）。转换函数接收一个类型为`F<T1>`的实例`f`和一个函数`t`。`T1 → T2`，并返回一个`F<T2>`类型的值。这个函数可以有多种形式，所以为了清楚起见，我们将使用第七章中的管道符号。
+
+转换函数需要遵守以下两个规则：
+
+- 用一个身份函数转换一个函子实例，会返回相同的（等于）函子实例。
+
+```c++
+f | transform([] (auto value) { return value; }) == f
+```
+
+- 用一个函数转换一个函子，然后用另一个函数转换，这与用这两个函数的组合转换函子是一样的。
+
+```c++
+f | transform(t1) | transform(t2) ==
+f | transform([=](auto value) { return t2(t1(value)); })
+```
+
+这看起来很像`std::transform`算法和`range`库的`view::transform`。 这不是偶然的：来自STL的泛型集合和范围是函子。 它们都是包装类型，在它们身上定义了一个良好的变换函数。值得注意的是，另一个方向并不成立：不是所有的函子都是集合或范围。
+
+#### 10.1.1 处理optional值
+
+其中一个最基础的函子是`std::optional`类型。它需要一个转换函数定义它
+
+```c++
+template <typename T1, typename F>
+auto transform(const std::optional<T1> &opt, F f)
+    -> decltype(std::make_optional(f(opt.value())))
+{
+    if (opt) {
+        return std::make_optional(f(opt.value()));
+    } else {
+        return {};
+    }
+}
+```
+
+另外，你可以创建一个range view，当`std::optional`包含一个值时，它将给出一个元素，否则就是一个空范围。这将使你能够使用管道语法。(查看 `functors-optional` 代码示例，它定义了`as_range`函数，将`std::optional`转换为最多一个元素的范围。)
+
+与用if-else语句手动处理缺失值相比，使用转换函数有什么好处？请考虑以下情况。你有一个管理用户登录的系统。它可以有两种状态：用户要么登录，要么不登录。很自然的，用一个`std::optional<std::string>`类型的`current_login`变量来表示。 如果用户没有登录，`current_login`的可选值将为空；否则它将包含用户名。我们将使`current_login`变量成为一个全局变量，以简化代码示例。
+
+现在想象一下，你有一个检索用户全名的函数和一个将你传递给它的任何内容创建为HTML格式的字符串的函数：
+
+```c++
+std::string user_full_name(const std::string& login);
+std::string to_html(const std::string& text);
+```
+
+为了得到当前用户的HTML格式的字符串，你可以随时检查是否有一个当前用户，或者你可以创建一个函数，返回`std::optional<std::string>`。如果没有用户登录，该函数返回一个空值；如果有用户登录，它将返回格式化的全名。这个函数的实现很简单，因为你已经有了一个能对可选值起作用的转换函数。
+
+```c++
+transform(
+    transform(
+        current_login,
+        user_full_name),
+    to_html);
+```
+
+或者，为了返回一个range，你可以通过使用管道语法来执行转换：
+
+```c++
+auto login_as_range = as_range(current_login);
+login_as_range | view::transform(user_full_name)
+               | view::transform(to_html);
+```
+
+看了这两个实现，有一点很明显：没有任何东西说这段代码对可选值有效。它可以适用于数组、向量、列表或其他任何定义了转换函数的东西。如果你决定用任何其他的函数来代替`std::optional`，你不需要改变代码。
+
+> **范围的特殊性**
+>
+> 需要注意的是，没有从`std::optional`到`range`的自动转换，反之亦然，所以你需要手动执行转换。严格来说，`view::transform`函数并没有正确地定义为使某物成为一个函数。这个函数总是返回一个范围，而不是你传递给它的同一类型。
+>
+> 这种行为可能是有问题的，因为你不得不手动转换类型。但当你考虑到范围所提供的好处时，这只是一个小麻烦。
 
 
+
+想象一下，你想创建一个函数，接收一个用户名的列表，并给你一个格式化的全名列表。 该函数的实现将与在可选值上工作的函数相一致。使用`expected<T, E>`而不是`std::optional<T>`的函数也是如此。 这就是广泛适用的抽象（如函数）带给你的力量：你可以编写通用代码，在各种情况下都能正常工作。
+
+### 10.2 单子：比函子更强大
+
+函子允许你轻松地处理包装好的值的转换，但它们有一个严重的限制。想象一下，函数`user_full_name`和`to_html`会失败。而且它们不是返回字符串，而是返回`std::optional<std::string>`：
+
+```c++
+std::optional<std::string> user_full_name(const std::string &login);
+std::optional<std::string> to_html(const std::string &text);
+```
+
+在这种情况下，转换函数不会有什么帮助。 如果你试图使用它并写出与前面例子相同的代码，你会得到一个复杂的结果。作为提醒，transform接收了一个函子`F<T1>`的实例和一个从`T1`到`T2`的函数，并且它返回了一个`F<T2>`的实例。
+
+```c++
+transform(current_login, user_full_name)
+```
+
+返回函数类型不为`std::optional<std::string>`。`user_full_namefunction`接收一个字符串并返回一个`optional`值，使得`T2 = std::optional<std::string>`。这反过来又使变换的结果成为一个嵌套的可选值`std::optional<std::optional<std::string>`。你执行的转换越多，你得到的嵌套就越多——这处理起来是不愉快的。
+
+这就是单子引入的地方。一个单子`M<T>`是一个具有定义在其上的额外函数的函子——一个去除一级嵌套的函数：
+
+```c++
+join: M<M<T>> -> M<T>
+```
+
+通过`join`，你不再有使用不返回普通值而是返回单子（functor）实例的函数的问题了。
+
+代码变为如下：
+
+```c++
+join(transform(
+    join(transform(
+        current_login,
+        user_full_name)),
+    to_html))
+// 或者写成range的形式
+auto login_as_range = as_range(current_login);
+login_as_range | view::transform(user_full_name)
+               | view::join
+               | view::transform(to_html)
+               | view::join;
+```
+
+当你改变函数的返回类型时，你做了一个侵入性的改变。如果你通过使用if-else检查来实现一切，你将不得不对代码进行重大的修改。在这里，你需要避免对一个值进行多次包装。
 
 ## 参考
 
