@@ -8,6 +8,7 @@
 #include <optional>
 #include <variant>
 #include <iostream>
+#include <type_traits>
 
 template<typename T, typename E>
 class expected
@@ -166,11 +167,30 @@ void print_result(const std::string &name, expected<Args...> &v)
     }
 };
 
+template<typename F,
+        typename Ret = typename std::invoke_result<F()>::type,
+        typename Exp = expected<Ret, std::exception_ptr>>
+Exp mtry(F f)
+{
+    try {
+        return Exp::success(f());
+    } catch (...) {
+        return Exp::failed(std::current_exception());
+    }
+}
+
 int main()
 {
+    auto result = mtry([=] {
+        auto users = system.users();
+        if (users.empty()) {
+            throw std::runtime_error("No users");
+        }
+        return users[0];
+    });
 
-    auto result = expected<double, std::string>::success(1.0);
-    print_result("result", result);
+//    auto result = expected<double, std::string>::success(1.0);
+//    print_result("result", result);
     auto result1 = expected<double, std::string>::failed("error occurred");
     print_result("result1", result1);
     auto op_result = std::optional(result1);
