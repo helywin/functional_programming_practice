@@ -3823,6 +3823,94 @@ Ret mbind(const with_log<T> &val, F f)
 
 使用这种方式可以把每个链的日志依次记录下来。你可以有多个并行日志--一个用于你创建的每个单体转换链，而不需要任何特殊的日志设施。一个函数可以写到不同的日志，这取决于谁调用了它，你不必指定 "这个日志在这里 "和 "那个日志在那里"。 此外，这种日志方法可以让你在异步操作链中保留日志，而不需要交织不同链的调试输出。
 
+### 10.7 并发和延续单子
+
+对于类似`std::cin`流的容器，程序可能需要阻塞直到用户输入完所有数据，这对于交互来说很不友好。这时需要用到`future`
+
+#### 10.7.1 Futures作为单子
+
+首先确认future能否作为函子。你需要能够创建一个转换函数，它接受一个`future<T1>`和一个函数 `f: T1 → T2`，然后返回一个`future<T2>`的实例。
+
+返回future的函数改为：
+
+```cpp
+future<std::string> user_full_name(const std::string& login);
+future<std::string> to_html(const std::string& text);
+```
+
+然后使用`mbind`函数
+
+```cpp
+future<std::string> current_user_html()
+{
+    return current_user() | mbind(user_full_name)
+                          | mbind(to_html);
+}
+```
+
+在这个片段中，三个异步操作被自然地链接在一起。每个函数都继续了前一个函数所做的工作。因此，传递给`mbind`的函数通常被称为 continuation ，而你定义的future-value monad被称为 continuation monad。
+
+#### 10.7.2 futures的实现
+
+与阻塞获取future的值，不如编写如果future已经可以了该做什么的函数。
+
+future的`mbind`实现如下：
+
+```cpp
+template<typname T, typename F>
+auto mbind(const future<T> &future, F f)
+{
+    return future.then(
+        [] (future<T> finished) {
+            return f(finished.get());
+        });
+}
+```
+
+在通常的 C++ 生态系统之外，还有一些其他库实现了它们自己的 futures。它们中的大多数都使用基本概念，并添加了处理和报告异步操作期间可能发生的错误的功能。
+
+除了标准库和 Boost 之外，最值得注意的例子是 Folly 库的 Future 类和 Qt 的 QFuture。Folly 提供了一个干净的 future 概念实现，它永远不会阻塞（如果 future 没有准备好，.get 将抛出异常，而不是阻塞）。QFuture 通过使用信号和槽的方式连接 continuation，但它也像标准库的 future 一样在 .get 上阻塞。QFuture 还具有超越基本概念的其他功能，它可以收集多个值而不仅仅是单个结果。尽管存在这些少量差异，但所有这些类都可以使用单子绑定操作来链接多个异步操作。
+
+### 10.8 单子组合
+
+返回单子类型的函数
+
+```text
+user_full_name : std::string -> M<std::string>
+to_html        : std::string -> M<std::string>
+```
+
+例如：
+
+```cpp
+M<std::string> user_html(const M<std::string> &login)
+{
+    return mbind(mbind(login, user_full_name), to_html);
+}
+```
+
+`user_html`就是`user_full_name`和`to_html`的组合
+
+返回单子的组合函数模板
+
+```cpp
+template <typename F, typename G>
+auto mcompose(F f, G g)
+{
+    return [=](auto value) {
+        return mbind(f(value), g);
+    }
+}
+```
+
+这样就可以直接改为：
+
+```cpp
+auto user_html = mcompose(user_full_name, to_html);
+```
+
+
+
 ## 参考
 
 1. [Partial Function Application in Haskell](https://blog.carbonfive.com/partial-function-application-in-haskell)
