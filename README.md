@@ -1,7 +1,7 @@
 ---
 title: C++函数式编程
 date: 2022-03-30 14:49:23
-lastmod: 2023-06-04 10:06:14
+lastmod: 2023-07-24 21:06:14
 tags:
   - C++
 excerpt: 《Functional Programming in C++》书中代码练习测试以及一些笔记
@@ -3909,6 +3909,31 @@ auto mcompose(F f, G g)
 auto user_html = mcompose(user_full_name, to_html);
 ```
 
+`mcompose` 函数也可以用于更简单的单子，例如 ranges（以及 vectors、lists 和 arrays）。假设你有一个 `children` 函数，它给出一个包含指定人的所有子代的 range。它具有单子函数的正确签名：它接受一个 `person_t` 值，并产生一个 `person_t` 的 range。你可以创建一个函数来检索所有grandchildren。
+
+```cpp
+auto grandchildren = mcompose(children, children);
+```
+
+**Kleisli组合**
+
+如果把单子函数和构造函数组合，仍然是同样的函数
+
+```cpp
+mcompose(f, construct) == f
+mcompose(construct, f) == f
+```
+
+如果有三个函数`f`，`g`和`h`，可以组合成如下结果
+
+```cpp
+mcompose(f, mcompose(g, h)) == mcompose(mcompose(f, g), h)
+```
+
+这个叫Kleisli组合
+
+## 11 模板元编程
+
 
 
 ## 参考
@@ -3920,3 +3945,4 @@ auto user_html = mcompose(user_full_name, to_html);
 3. [What is referential transparency?](https://stackoverflow.com/questions/210835/what-is-referential-transparency)
 
 4. [阿姆达定律](https://zhuanlan.zhihu.com/p/48022905)
+
